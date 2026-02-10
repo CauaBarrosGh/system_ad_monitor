@@ -12,13 +12,9 @@ const app = express();
 // --- CONFIGURAÇÃO DO EXPRESS ---
 
 // CORS
-const whiteList = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : [];
 app.use(cors({
-    origin: function (origin, callback) {
-        if (!origin || whiteList.indexOf(origin) !== -1) callback(null, true);
-        else callback(new Error('Acesso negado por CORS'));
-    },
-    methods: ['GET', 'POST'],
+    origin: true, //Aceita qualquer origem e permite login
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
