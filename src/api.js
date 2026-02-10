@@ -72,6 +72,6 @@ app.get(/.*/, (req, res) => {
 
 // Start Server
 const PORT = process.env.API_PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🔒 Servidor WEB rodando em http://localhost:${PORT}`);
 });
