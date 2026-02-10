@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <!-- Torna o layout responsivo em dispositivos móveis -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="/img/shield.png">
+    <title>Login - AD Guard</title>
+
+    <!-- Tailwind CDN (estilização utilitária rápida) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Ícones Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body class="bg-slate-900 flex items-center justify-center h-screen font-sans">
+
+    <!-- CONTAINER DO CARD DE LOGIN -->
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm">
+
+        <!-- Cabeçalho / Ícone / Título -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 text-blue-600 mb-4">
+                <i data-lucide="shield-check" class="w-8 h-8"></i>
+            </div>
+
+            <h1 class="text-2xl font-bold text-slate-800">Acesso Restrito</h1>
+            <p class="text-slate-500 text-sm">Entre com suas credenciais de rede.</p>
+        </div>
+
+        <!-- FORMULÁRIO DE LOGIN -->
+        <form id="loginForm" class="space-y-4">
+
+            <!-- Campo Usuário -->
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">
+                    Usuário
+                </label>
+
+                <div class="relative">
+                    <i data-lucide="user" class="absolute left-3 top-2.5 text-slate-400 w-5 h-5"></i>
+                    <input type="text" id="username"
+                        class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg 
+                        focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+                        placeholder="baraujo" required>
+                </div>
+            </div>
+
+            <!-- Campo Senha -->
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase mb-1">
+                    Senha
+                </label>
+
+                <div class="relative">
+                    <i data-lucide="lock" class="absolute left-3 top-2.5 text-slate-400 w-5 h-5"></i>
+                    <input type="password" id="password"
+                        class="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg 
+                        focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+                        placeholder="••••••••" required>
+                </div>
+            </div>
+
+            <!-- Mensagem de erro dinâmica -->
+            <div id="errorMsg"
+                class="hidden bg-red-50 text-red-500 text-xs p-3 rounded-lg text-center font-bold border border-red-100">
+            </div>
+
+            <!-- Botão de Login -->
+            <button type="submit" id="btnSubmit"
+                class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg 
+                transition-all active:scale-95">
+                ENTRAR
+            </button>
+        </form>
+    </div>
+
+    <!-- SCRIPT LÓGICA DO FORMULÁRIO -->
+    <script>
+        // Inicializa ícones
+        lucide.createIcons();
+
+        // Listener do formulário
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault(); // Evita reload da página
+
+            const btn = document.getElementById('btnSubmit');
+            const err = document.getElementById('errorMsg');
+
+            // Estado de carregamento no botão
+            btn.innerHTML = '<i data-lucide="loader-2" class="animate-spin w-5 h-5 inline"></i>';
+            btn.disabled = true;
+            lucide.createIcons(); // Re-render de ícones
+
+            // Oculta mensagens de erro anteriores
+            err.classList.add('hidden');
+
+            // Coleta valores do formulário
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+
+            try {
+                // Chama o backend
+                const res = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: user, password: pass })
+                });
+
+                const data = await res.json();
+
+                // Sucesso → redireciona
+                if (data.success) {
+                    window.location.href = '/';
+                } else {
+                    throw new Error(data.message || 'Falha no login');
+                }
+
+            } catch (error) {
+                // Exibe erro
+                err.innerText = error.message;
+                err.classList.remove('hidden');
+
+                // Restaura botão
+                btn.innerText = 'ENTRAR';
+                btn.disabled = false;
+            }
+        });
+    </script>
+
+</body>
+</html>

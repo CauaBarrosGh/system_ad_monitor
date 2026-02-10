@@ -1,0 +1,88 @@
+/* ============================================================================
+   SCROLLBAR BASE (navegadores Webkit)
+   - Define largura, trilha e cor do "thumb"
+   ============================================================================ */
+::-webkit-scrollbar { 
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track { 
+    background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb { 
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover { 
+    background: #94a3b8;
+}
+
+/* ============================================================================
+   SCROLLBAR PARA FIREFOX (fallback)
+   ============================================================================ */
+.custom-scrollbar { 
+    scrollbar-width: thin;
+}
+
+/* ============================================================================
+   ANIMAÇÃO: Fade-in suave para elementos que aparecem dinamicamente
+   ============================================================================ */
+.fade-in { 
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn { 
+    from { 
+        opacity: 0;
+        transform: translateY(5px);
+    }
+    to { 
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ============================================================================
+   BOTÕES DE FILTRO (estilo ativo / ativo-danger)
+   ============================================================================ */
+.filter-btn-active { 
+    background-color: #eff6ff;
+    color: #2563eb;
+    border-color: #bfdbfe;
+    font-weight: 600;
+}
+
+.filter-btn-danger-active { 
+    background-color: #fef2f2;
+    color: #dc2626;
+    border-color: #fecaca;
+    font-weight: 600;
+}
+
+/* ============================================================================
+   RESPONSIVIDADE (evita overflow horizontal)
+   ============================================================================ */
+html, body {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+/* ============================================================================
+   SCROLLBAR EM TEMA ESCURO
+   - Ativa quando o wrapper tiver classe .dark
+   ============================================================================ */
+.dark ::-webkit-scrollbar-track {
+    background: #1e293b;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: #475569;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}
