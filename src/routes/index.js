@@ -8,6 +8,7 @@ const { requireAuth } = require('../middleware/auth');
 const { loginLimiter } = require('../middleware/rateLimit');
 const disabledController = require('../controllers/disabledController');
 const computerController = require('../controllers/computerController');
+const systemController = require('../controllers/systemController'); 
 
 // --- Auth Routes ---
 router.post('/auth/login', loginLimiter, authController.login);
@@ -37,5 +38,8 @@ router.delete('/api/disabled/:username', requireAuth, userController.deleteDisab
 
 // Rota para deletar computador
 router.delete('/api/inventory/computers/:computerName', requireAuth, computerController.deleteComputer);
+
+// Adicione esta nova rota:
+router.post('/system/sync', systemController.runCollector);
 
 module.exports = router;

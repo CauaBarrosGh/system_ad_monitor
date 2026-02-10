@@ -388,19 +388,63 @@ async function fetchDisabledUsers(client, dbConnection) {
 // - Fecha conexões (unbind/end)
 async function main() {
     console.log('--- 🛡️ INICIANDO COLETOR SOC (RISK SCORE ATIVO) ---');
+
+    // 1. DETECTAR ARGUMENTOS
+    const args = process.argv.slice(2);
+    
+    // Se args estiver vazio, roda tudo. Se tiver flag, roda só o pedido.
+    const shouldRunComputers = args.includes('--computers') || args.length === 0;
+    const shouldRunUsers = args.includes('--users') || args.length === 0;
+
+    console.log(`📋 Modo: ${args.length === 0 ? 'COMPLETO' : args.join(', ')}`);
+
     let dbConnection;
-    try { dbConnection = await mysql.createConnection(MYSQL_CONFIG); } catch (e) { return console.error('❌ Erro Banco:', e.message); }
+    try { 
+        dbConnection = await mysql.createConnection(MYSQL_CONFIG); 
+    } catch (e) { 
+        return console.error('❌ Erro Banco:', e.message); 
+    }
+
     const client = ldap.createClient({ url: AD_CONFIG.url });
+
     client.bind(AD_CONFIG.bindDN, AD_CONFIG.bindCredentials, async (err) => {
-        if (err) { console.error('❌ Erro Login AD:', err); dbConnection.end(); return; }
+        if (err) { 
+            console.error('❌ Erro Login AD:', err); 
+            dbConnection.end(); 
+            process.exit(1);
+            return; 
+        }
+
         try {
-            await buildDepartmentMap(client);
-            await fetchUsers(client, dbConnection);
-            await fetchComputers(client, dbConnection);
-            await fetchDisabledUsers(client, dbConnection);
-            console.log('\n✨ DADOS E RISCOS ATUALIZADOS COM SUCESSO.');
-        } catch (execErr) { console.error('❌ Erro:', execErr); } 
-        finally { client.unbind(); dbConnection.end(); }
+            // 2. EXECUÇÃO CONDICIONAL
+            
+            // --- BLOCO DE USUÁRIOS ---
+            if (shouldRunUsers) {
+                console.log('\n👥 Iniciando fluxo de USUÁRIOS...');
+                await buildDepartmentMap(client); 
+                await fetchUsers(client, dbConnection);
+                await fetchDisabledUsers(client, dbConnection);
+            }
+
+            // --- BLOCO DE COMPUTADORES ---
+            if (shouldRunComputers) {
+                // A mensagem só aparece se entrar aqui
+                console.log('\n💻 Iniciando fluxo de COMPUTADORES...');
+                await fetchComputers(client, dbConnection);
+            }
+
+            console.log('\n✨ DADOS SINCRONIZADOS COM SUCESSO.');
+
+        } catch (execErr) { 
+            console.error('❌ Erro durante execução:', execErr); 
+            process.exit(1);
+
+        } finally { 
+            client.unbind(); 
+            await dbConnection.end(); 
+            process.exit(0);
+        }
     });
 }
+
 main();

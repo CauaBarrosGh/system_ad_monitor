@@ -371,7 +371,7 @@ export async function refreshAfterUserAction() {
   }
 }
 
-function getActiveTabFromDOM() {
+export function getActiveTabFromDOM() {
   const ids = ["overview", "details", "inventory", "security", "audit", "disabled"];
   return ids.find((id) => {
     const el = document.getElementById("view-" + id);

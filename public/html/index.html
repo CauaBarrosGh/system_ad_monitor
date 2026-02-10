@@ -129,16 +129,18 @@
                 <h2 class="text-lg font-bold text-gray-700 dark:text-slate-200 truncate" id="header-title">Dashboard
                     Operacional</h2>
             </div>
-
             <div class="flex items-center gap-2">
+                <button id="btn-sync-now" onclick="triggerManualSync()"
+                    class="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed mr-6">
+                    <i data-lucide="refresh-cw" id="icon-sync" class="w-4 h-4"></i>
+                    <span id="text-sync">Sincronizar AD</span>
+                </button>
                 <button onclick="toggleDarkMode()"
                     class="p-2 text-slate-500 hover:text-yellow-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-yellow-400 rounded-lg transition-all">
                     <i id="icon-sun" data-lucide="sun" class="w-5 h-5"></i>
                     <i id="icon-moon" data-lucide="moon" class="w-5 h-5 hidden"></i>
                 </button>
-
                 <div class="h-6 w-px bg-gray-200 dark:bg-slate-700 mx-2 hidden sm:block"></div>
-
                 <a href="/auth/logout"
                     class="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
                     title="Sair do Sistema">
@@ -542,7 +544,8 @@
                         <div class="flex flex-col sm:flex-row gap-2 w-full xl:w-auto items-center">
                             <button onclick="loadInventory({ force: true })"
                                 class="h-8 group flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 dark:from-blue-600 dark:to-blue-700 dark:hover:from-blue-700 dark:hover:to-blue-800 text-white rounded-lg transition-all text-sm font-semibold shadow-lg hover:shadow-xl">
-                                <i data-lucide="refresh-cw" class="w-4 h-4 group-hover:rotate-180 transition-transform duration-500"></i>                  
+                                <i data-lucide="refresh-cw"
+                                    class="w-4 h-4 group-hover:rotate-180 transition-transform duration-500"></i>
                                 Atualizar
                             </button>
                             <button onclick="exportCSV()"

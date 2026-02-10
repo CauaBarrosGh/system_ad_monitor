@@ -9,6 +9,7 @@ import { exportCSV } from "./features/exportCsv.js";
 import { loadAuditLogs } from "./features/audit.js";
 import { toggleLegacyFilter, sortDisabledTable , confirmDeleteDisabled} from "./features/disabledTable.js";
 import { confirmDeleteComputer } from "./features/computersTable.js";
+import { triggerManualSync } from "./features/system.js";
 
 // Inicialização base
 initTheme();
@@ -32,6 +33,7 @@ window.sortDisabledTable = sortDisabledTable;
 window.confirmDeleteDisabled = confirmDeleteDisabled;
 window.confirmDeleteComputer = confirmDeleteComputer;
 window.loadInventory = loadInventory;
+window.triggerManualSync = triggerManualSync;
 
 
 // Carregamento inicial
