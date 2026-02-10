@@ -49,7 +49,7 @@ Este projeto é uma solução completa para administradores de sistemas (SysAdmi
 
 ```bash
 # Clone o repositório
-git clone [https://github.com/SEU-USUARIO/ad-monitor-dashboard.git](https://github.com/SEU-USUARIO/ad-monitor-dashboard.git)
+git clone https://github.com/CauaBarrosGh/system_ad_monitor
 
 # Entre na pasta
 cd ad-monitor-dashboard
@@ -117,9 +117,5 @@ Este projeto segue boas práticas de segurança:
 * **GitIgnore:** Arquivos sensíveis (`.env`, `node_modules`) são ignorados pelo Git.
 
 ---
-
-## 📄 Licença
-
-Este projeto está sob a licença MIT. Sinta-se à vontade para contribuir!
 
 **Desenvolvido por Cauã 🚀**
