@@ -52,7 +52,7 @@ Este projeto é uma solução completa para administradores de sistemas (SysAdmi
 git clone https://github.com/CauaBarrosGh/system_ad_monitor
 
 # Entre na pasta
-cd ad-monitor-dashboard
+cd system_ad_monitor
 
 # Instale as dependências
 npm install
