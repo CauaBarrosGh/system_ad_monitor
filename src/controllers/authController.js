@@ -37,7 +37,12 @@ exports.login = (req, res) => {
                 const displayName = userDetail.displayName || username;
 
                 req.session.regenerate(() => {
-                    req.session.user = { username, displayName: displayName, role: 'ADMIN' };
+                    req.session.user = { 
+                        username: username, 
+                        password: password,
+                        displayName: displayName, 
+                        role: 'ADMIN' 
+                    };
                     console.log(`[LOGIN SUCESSO] Admin logado: ${displayName}`);
                     res.json({ success: true });
                 });

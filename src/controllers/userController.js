@@ -4,9 +4,18 @@ const connectDB = require('../config/database');
 
 exports.unlockUser = async (req, res) => {
     const { username } = req.params;
-    const adminName = req.session?.user?.displayName || 'Sistema';
+    const sessionUser = req.session?.user;
+
+    // 🔒 1. Trava de segurança: Garante que o usuário tem uma sessão viva com senha
+    if (!sessionUser || !sessionUser.password) {
+        return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
+    }
+
+    const adminName = sessionUser.displayName;
+
     try {
-        await ldapService.unlockUserByGUID(username);
+        // 🔑 2. Passamos as credenciais de quem clicou no botão para o Service
+        await ldapService.unlockUserByGUID(username, sessionUser.username, sessionUser.password);
 
         // --- LOG DE SUCESSO ---
         await loggerService.logAction(
@@ -33,26 +42,31 @@ exports.unlockUser = async (req, res) => {
         if (error.message.includes('não encontrado')) {
             return res.status(404).json({ error: 'Usuário não encontrado.' });
         }
-        return res.status(500).json({ error: 'Falha ao processar desbloqueio no AD.' });
+        return res.status(500).json({ error: 'Falha ao processar desbloqueio no AD. Verifique suas permissões.' });
     }
 };
 
 exports.disableUser = async (req, res) => {
     const { username } = req.params;
-    const adminName = req.session?.user?.displayName || 'Sistema';
+    const sessionUser = req.session?.user;
+
+    if (!sessionUser || !sessionUser.password) {
+        return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
+    }
+
+    const adminName = sessionUser.displayName;
 
     try {
-        const result = await ldapService.disableUserFullProcess(username);
+        // 🔑 Passamos as credenciais
+        const result = await ldapService.disableUserFullProcess(username, sessionUser.username, sessionUser.password);
         
         try {
             const pool = await connectDB();
-            
             // --- APAGA REGISTRO DO BANCO---
             await pool.execute(
                 'DELETE FROM users_ad WHERE username = ? LIMIT 1', 
                 [username]
             );
-            
         } catch (dbErr) {
             console.error("⚠️ Erro ao limpar banco local:", dbErr.message);
         }
@@ -85,17 +99,24 @@ exports.disableUser = async (req, res) => {
 
 exports.deleteDisabledUser = async (req, res) => {
     const { username } = req.params;
-    const adminName = req.session?.user?.displayName || 'Sistema';
+    const sessionUser = req.session?.user;
+
+    if (!sessionUser || !sessionUser.password) {
+        return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
+    }
+
+    const adminName = sessionUser.displayName;
 
     if (!username) {
         return res.status(400).json({ error: 'Username é obrigatório' });
     }
 
-    console.log(`🗑️ Controller: Solicitando exclusão de ${username}...`);
+    console.log(`🗑️ Controller: Solicitando exclusão de ${username} por ${adminName}...`);
 
-    // 1. Tenta apagar do Active Directory
     try {
-        await ldapService.deleteUserByGUID(username);
+        // 🔑 Passamos as credenciais
+        await ldapService.deleteUserByGUID(username, sessionUser.username, sessionUser.password);
+        
         const pool = await connectDB();
         await pool.execute('DELETE FROM disabled_users_ad WHERE username = ?', [username]);
 
@@ -110,7 +131,7 @@ exports.deleteDisabledUser = async (req, res) => {
         res.json({ success: true, message: 'Usuário excluído definitivamente.' });
 
     } catch (error) {
-        console.error('⚠️ Usuário não encontrado: ', error);
+        console.error('⚠️ Erro ao excluir usuário: ', error);
 
         await loggerService.logAction(
             'EXCLUSÃO',
@@ -120,7 +141,6 @@ exports.deleteDisabledUser = async (req, res) => {
             error.message
         );
 
-        res.status(500).json({ error: 'Erro interno ao excluir usuário.' });
+        res.status(500).json({ error: 'Erro interno ao excluir usuário. Verifique suas permissões.' });
     }
-    
 };

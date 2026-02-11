@@ -1,18 +1,38 @@
 const ldap = require('ldapjs');
 const { DISABLED_OU } = require('../config/constants');
 
-exports.unlockUserByGUID = (username) => {
+// Função auxiliar para formatar data (DD/MM/AAAA)
+function getFormattedDate() {
+    const now = new Date();
+    return now.toLocaleDateString('pt-BR');
+}
+
+// Função auxiliar para extrair valor de um atributo cru
+function getAttributeValue(attributes, name) {
+    const attr = attributes.find(a => a.type.toLowerCase() === name.toLowerCase());
+    if (!attr) return null;
+    if (attr.values && attr.values.length > 0) return attr.values;
+    if (attr.vals && attr.vals.length > 0) return attr.vals;
+    return null;
+}
+
+// --- DESBLOQUEAR USUÁRIO ---
+exports.unlockUserByGUID = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         const client = ldap.createClient({
             url: process.env.AD_URL,
             tlsOptions: { rejectUnauthorized: false }
         });
 
-        client.bind(process.env.AD_USER, process.env.AD_PASSWORD, (bindErr) => {
+        // 🔑 Usa a credencial de quem clicou, ou cai para o .env se for sistema automático
+        const bindUser = adminUser || process.env.AD_USER;
+        const bindPass = adminPass || process.env.AD_PASSWORD;
+
+        client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
                 console.error(`[LDAP SERVICE] Erro de Bind: ${bindErr.message}`);
-                return reject(new Error('Erro de autenticação no AD (Service Account).'));
+                return reject(new Error('Erro de autenticação no AD. Verifique suas permissões.'));
             }
 
             const searchOptions = {
@@ -87,23 +107,8 @@ exports.unlockUserByGUID = (username) => {
     });
 };
 
-
-// Função auxiliar para formatar data (DD/MM/AAAA)
-function getFormattedDate() {
-    const now = new Date();
-    return now.toLocaleDateString('pt-BR');
-}
-
-// Função auxiliar para extrair valor de um atributo cru
-function getAttributeValue(attributes, name) {
-    const attr = attributes.find(a => a.type.toLowerCase() === name.toLowerCase());
-    if (!attr) return null;
-    if (attr.values && attr.values.length > 0) return attr.values;
-    if (attr.vals && attr.vals.length > 0) return attr.vals;
-    return null;
-}
-
-exports.disableUserFullProcess = (username) => {
+// --- DESATIVAR USUÁRIO ---
+exports.disableUserFullProcess = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         
         console.log(`\n--- 🕵️ INICIANDO PROCESSO DE DESLIGAMENTO: ${username} ---`);
@@ -117,10 +122,14 @@ exports.disableUserFullProcess = (username) => {
 
         client.on('error', (err) => console.error('[CLIENT ERR]', err.message));
 
-        client.bind(process.env.AD_USER, process.env.AD_PASSWORD, (bindErr) => {
+        // 🔑 Usa a credencial dinâmica
+        const bindUser = adminUser || process.env.AD_USER;
+        const bindPass = adminPass || process.env.AD_PASSWORD;
+
+        client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
-                return reject(new Error('Erro de autenticação no AD.'));
+                return reject(new Error('Erro de autenticação no AD. Verifique suas permissões.'));
             }
 
             const searchOptions = {
@@ -146,7 +155,6 @@ exports.disableUserFullProcess = (username) => {
                     const displayVals = getAttributeValue(entry.attributes, 'displayName');
                     const memberOfVals = getAttributeValue(entry.attributes, 'memberOf');
                     
-                    // Extrair GUID
                     let userGUID = null;
                     const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
                     if (guidAttr) {
@@ -188,8 +196,6 @@ exports.disableUserFullProcess = (username) => {
                             }
 
                             await new Promise((resolveGroup) => {
-                                
-                                // Extrair o CN do DN
                                 const cnMatch = groupDN.match(/^CN=([^,]+)/);
                                 if (!cnMatch) {
                                     console.log(`⚠️ [AVISO] Não foi possível extrair CN de: ${groupDN}`);
@@ -198,7 +204,6 @@ exports.disableUserFullProcess = (username) => {
                                 
                                 const groupCN = cnMatch[1];
                                 
-                                // Buscar o grupo pelo CN para obter o GUID
                                 const groupSearchOptions = {
                                     filter: `(&(objectClass=group)(cn=${groupCN}))`,
                                     scope: 'sub',
@@ -215,13 +220,10 @@ exports.disableUserFullProcess = (username) => {
                                     let DNConstructor = null;
                                     
                                     searchRes.on('searchEntry', (entry) => {
-                                        
-                                        // Capturar o construtor do DN
                                         if (entry.objectName && entry.objectName.constructor) {
                                             DNConstructor = entry.objectName.constructor;
                                         }
                                         
-                                        // Extrair o GUID
                                         const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
                                         if (guidAttr) {
                                             if (guidAttr.buffers && guidAttr.buffers.length > 0) {
@@ -279,35 +281,6 @@ exports.disableUserFullProcess = (username) => {
                                 });
                             });
                         }
-
-                        await new Promise((resolveCheck, rejectCheck) => {
-                            const checkOptions = {
-                                filter: `(sAMAccountName=${username})`,
-                                scope: 'sub',
-                                attributes: ['memberOf']
-                            };
-                            
-                            client.search(process.env.AD_BASE, checkOptions, (searchErr, searchRes) => {
-                                if (searchErr) return resolveCheck();
-                                
-                                let remainingGroups = [];
-                                
-                                searchRes.on('searchEntry', (entry) => {
-                                    const memberOfVals = getAttributeValue(entry.attributes, 'memberOf');
-                                    remainingGroups = memberOfVals || [];
-                                });
-                                
-                                searchRes.on('end', () => {
-                                    const filtered = remainingGroups.filter(g => 
-                                        !g.toLowerCase().includes('domain users') && 
-                                        !g.toLowerCase().includes('usuários do domínio')
-                                    );
-                                    resolveCheck();
-                                });
-                                
-                                searchRes.on('error', () => resolveCheck());
-                            });
-                        });
 
                         // --- DESATIVAR + RENOMEAR + DESCRIÇÃO ---
                         const currentUAC = parseInt(userData.userAccountControl, 10);
@@ -374,8 +347,8 @@ exports.disableUserFullProcess = (username) => {
     });
 };
 
-// Deletar user
-exports.deleteUserByGUID = (username) => {
+// --- EXCLUIR USUÁRIO DEFINITIVO ---
+exports.deleteUserByGUID = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         console.log(`\n--- 🗑️ INICIANDO EXCLUSÃO DEFINITIVA: ${username} ---`);
 
@@ -384,13 +357,16 @@ exports.deleteUserByGUID = (username) => {
             tlsOptions: { rejectUnauthorized: false }
         });
 
-        client.bind(process.env.AD_USER, process.env.AD_PASSWORD, (bindErr) => {
+        // 🔑 Usa a credencial dinâmica
+        const bindUser = adminUser || process.env.AD_USER;
+        const bindPass = adminPass || process.env.AD_PASSWORD;
+
+        client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
-                return reject(new Error('Erro de autenticação no AD (Delete).'));
+                return reject(new Error('Erro de autenticação no AD. Verifique suas permissões.'));
             }
 
-            // 1. Precisamos do DN real para deletar
             const searchOptions = {
                 filter: `(sAMAccountName=${username})`,
                 scope: 'sub',
@@ -412,13 +388,10 @@ exports.deleteUserByGUID = (username) => {
                 searchRes.on('end', () => {
                     if (!targetDN) {
                         client.unbind();
-                        // Se não achou no AD, retornamos sucesso false mas sem erro, 
-                        // para que o controller possa deletar do banco de dados (limpeza).
                         console.log('⚠️ Usuário não encontrado no AD (já removido?).');
                         return resolve({ found: false });
                     }
 
-                    // 2. Executa o Delete
                     client.del(targetDN, (delErr) => {
                         client.unbind();
                         if (delErr) {
@@ -439,9 +412,8 @@ exports.deleteUserByGUID = (username) => {
     });
 };
 
-
 // --- DELETAR COMPUTADOR ---
-exports.deleteComputer = (computerName) => {
+exports.deleteComputer = (computerName, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         console.log(`\n--- 💻 INICIANDO EXCLUSÃO DE COMPUTADOR: ${computerName} ---`);
 
@@ -450,13 +422,16 @@ exports.deleteComputer = (computerName) => {
             tlsOptions: { rejectUnauthorized: false }
         });
 
-        client.bind(process.env.AD_USER, process.env.AD_PASSWORD, (bindErr) => {
+        // 🔑 Usa a credencial dinâmica (Mesma lógica)
+        const bindUser = adminUser || process.env.AD_USER;
+        const bindPass = adminPass || process.env.AD_PASSWORD;
+
+        client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
-                return reject(new Error('Erro de autenticação no AD (Bind).'));
+                return reject(new Error('Erro de autenticação no AD. Verifique suas permissões.'));
             }
 
-            // 1. Busca o DN do computador pelo Nome (CN)
             const searchOptions = {
                 filter: `(&(objectClass=computer)(cn=${computerName}))`,
                 scope: 'sub',
@@ -482,7 +457,6 @@ exports.deleteComputer = (computerName) => {
                         return resolve({ found: false });
                     }
 
-                    // 2. Executa o Delete no DN encontrado
                     client.del(targetDN, (delErr) => {
                         client.unbind();
                         if (delErr) {
