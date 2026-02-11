@@ -1,6 +1,6 @@
 const ActiveDirectory = require('activedirectory2');
 const adConfig = require('../config/adConfig');
-const { RESTRICTED_OU, DOMINIO_PADRAO } = require('../config/constants');
+const { ALLOWED_OUS, DOMINIO_PADRAO } = require('../config/constants');
 
 exports.login = (req, res) => {
     let { username, password } = req.body;
@@ -24,11 +24,14 @@ exports.login = (req, res) => {
                 }
 
                 const userDN = userDetail.dn.toLowerCase();
-                const requiredOU = RESTRICTED_OU.toLowerCase();
+                
+                const hasPermission = ALLOWED_OUS.some(allowedOU => 
+                    userDN.includes(allowedOU.toLowerCase())
+                );
 
-                if (!userDN.includes(requiredOU)) {
-                    console.log(`[ACESSO NEGADO] Usuário ${username} fora da pasta permitida.`);
-                    return res.status(403).json({ success: false, message: 'Sem permissão. Você não é Admin.' });
+                if (!hasPermission) {
+                    console.log(`[ACESSO NEGADO] Usuário ${username} fora das pastas permitidas.`);
+                    return res.status(403).json({ success: false, message: 'Sem permissão. Você não pertence aos grupos administrativos.' });
                 }
 
                 const displayName = userDetail.displayName || username;
@@ -52,5 +55,6 @@ exports.logout = (req, res) => {
 };
 
 exports.me = (req, res) => {
+    if (!req.session.user) return res.status(401).json({ error: 'Não logado' });
     res.json(req.session.user);
 };
