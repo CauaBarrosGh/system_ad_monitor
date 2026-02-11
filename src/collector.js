@@ -402,49 +402,98 @@ async function main() {
     try { 
         dbConnection = await mysql.createConnection(MYSQL_CONFIG); 
     } catch (e) { 
-        return console.error('❌ Erro Banco:', e.message); 
+        console.error('❌ Erro Banco:', e.message);
+        if (require.main === module) process.exit(1);
+        throw e;
     }
 
     const client = ldap.createClient({ url: AD_CONFIG.url });
 
-    client.bind(AD_CONFIG.bindDN, AD_CONFIG.bindCredentials, async (err) => {
-        if (err) { 
-            console.error('❌ Erro Login AD:', err); 
-            dbConnection.end(); 
-            process.exit(1);
-            return; 
-        }
-
-        try {
-            // 2. EXECUÇÃO CONDICIONAL
-            
-            // --- BLOCO DE USUÁRIOS ---
-            if (shouldRunUsers) {
-                console.log('\n👥 Iniciando fluxo de USUÁRIOS...');
-                await buildDepartmentMap(client); 
-                await fetchUsers(client, dbConnection);
-                await fetchDisabledUsers(client, dbConnection);
+    return new Promise((resolve, reject) => {
+        client.bind(AD_CONFIG.bindDN, AD_CONFIG.bindCredentials, async (err) => {
+            if (err) { 
+                console.error('❌ Erro Login AD:', err); 
+                dbConnection.end(); 
+                if (require.main === module) process.exit(1);
+                return reject(err); 
             }
 
-            // --- BLOCO DE COMPUTADORES ---
-            if (shouldRunComputers) {
-                // A mensagem só aparece se entrar aqui
-                console.log('\n💻 Iniciando fluxo de COMPUTADORES...');
-                await fetchComputers(client, dbConnection);
+            try {
+                // 2. EXECUÇÃO CONDICIONAL
+                
+                // --- BLOCO DE USUÁRIOS ---
+                if (shouldRunUsers) {
+                    console.log('\n👥 Iniciando fluxo de USUÁRIOS...');
+                    await buildDepartmentMap(client); 
+                    await fetchUsers(client, dbConnection);
+                    await fetchDisabledUsers(client, dbConnection);
+                }
+
+                // --- BLOCO DE COMPUTADORES ---
+                if (shouldRunComputers) {
+                    console.log('\n💻 Iniciando fluxo de COMPUTADORES...');
+                    await fetchComputers(client, dbConnection);
+                }
+
+                console.log('\n✨ DADOS SINCRONIZADOS COM SUCESSO.');
+                resolve();
+
+            } catch (execErr) { 
+                console.error('❌ Erro durante execução:', execErr); 
+                if (require.main === module) process.exit(1);
+                reject(execErr);
+
+            } finally { 
+                client.unbind(); 
+                await dbConnection.end(); 
+                if (require.main === module) process.exit(0);
             }
-
-            console.log('\n✨ DADOS SINCRONIZADOS COM SUCESSO.');
-
-        } catch (execErr) { 
-            console.error('❌ Erro durante execução:', execErr); 
-            process.exit(1);
-
-        } finally { 
-            client.unbind(); 
-            await dbConnection.end(); 
-            process.exit(0);
-        }
+        });
     });
 }
 
-main();
+// --- FUNÇÃO EXCLUSIVA PARA A API (Apenas atualiza os Desativados) ---
+async function runJustDisabledUsers() {
+    console.log('🔄 [API] Coletor invocado para sincronizar usuários desativados...');
+    let dbConnection;
+    try { 
+        dbConnection = await mysql.createConnection(MYSQL_CONFIG); 
+    } catch (e) { 
+        console.error('❌ [API] Erro Banco:', e.message);
+        throw e;
+    }
+
+    const client = ldap.createClient({ url: AD_CONFIG.url });
+
+    return new Promise((resolve, reject) => {
+        client.bind(AD_CONFIG.bindDN, AD_CONFIG.bindCredentials, async (err) => {
+            if (err) { 
+                dbConnection.end(); 
+                return reject(err); 
+            }
+            try {
+                await fetchDisabledUsers(client, dbConnection);
+                resolve();
+            } catch (execErr) { 
+                reject(execErr);
+            } finally { 
+                client.unbind(); 
+                await dbConnection.end(); 
+            }
+        });
+    });
+}
+
+// --- CONTROLE DE EXECUÇÃO (A MÁGICA ACONTECE AQUI) ---
+
+// 1. Se o arquivo foi chamado diretamente pelo terminal (node collector.js)
+if (require.main === module) {
+    main();
+} 
+// 2. Se o arquivo foi importado por outro (ex: require('./collector') na API)
+else {
+    module.exports = {
+        main,
+        runJustDisabledUsers 
+    };
+}

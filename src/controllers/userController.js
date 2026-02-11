@@ -1,12 +1,12 @@
 const ldapService = require('../services/ldapService');
 const loggerService = require('../services/loggerService');
 const connectDB = require('../config/database');
-
+const collector = require('../collector')
 exports.unlockUser = async (req, res) => {
     const { username } = req.params;
     const sessionUser = req.session?.user;
 
-    // 🔒 1. Trava de segurança: Garante que o usuário tem uma sessão viva com senha
+    // Trava de segurança: Garante que o usuário tem uma sessão viva com senha
     if (!sessionUser || !sessionUser.password) {
         return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
     }
@@ -14,7 +14,7 @@ exports.unlockUser = async (req, res) => {
     const adminName = sessionUser.displayName;
 
     try {
-        // 🔑 2. Passamos as credenciais de quem clicou no botão para o Service
+        // Passamos as credenciais de quem clicou no botão para o Service
         await ldapService.unlockUserByGUID(username, sessionUser.username, sessionUser.password);
 
         // --- LOG DE SUCESSO ---
@@ -57,7 +57,7 @@ exports.disableUser = async (req, res) => {
     const adminName = sessionUser.displayName;
 
     try {
-        // 🔑 Passamos as credenciais
+        // Passamos as credenciais
         const result = await ldapService.disableUserFullProcess(username, sessionUser.username, sessionUser.password);
         
         try {
@@ -67,6 +67,7 @@ exports.disableUser = async (req, res) => {
                 'DELETE FROM users_ad WHERE username = ? LIMIT 1', 
                 [username]
             );
+            await collector.runJustDisabledUsers();
         } catch (dbErr) {
             console.error("⚠️ Erro ao limpar banco local:", dbErr.message);
         }
@@ -114,7 +115,7 @@ exports.deleteDisabledUser = async (req, res) => {
     console.log(`🗑️ Controller: Solicitando exclusão de ${username} por ${adminName}...`);
 
     try {
-        // 🔑 Passamos as credenciais
+        // Passamos as credenciais
         await ldapService.deleteUserByGUID(username, sessionUser.username, sessionUser.password);
         
         const pool = await connectDB();
