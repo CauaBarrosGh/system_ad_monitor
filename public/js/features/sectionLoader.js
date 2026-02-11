@@ -87,6 +87,13 @@ export async function loadInventory({ force = false } = {}) {
 
   if (!force && store.loaded.inventory) return;
 
+  const tbody = document.getElementById('comp-table-body');
+  if (tbody) {
+    tbody.innerHTML =
+      '<tr><td colspan="6" class="text-center py-8 text-slate-600 dark:text-slate-400">' +
+      '<i data-lucide="loader-2" class="animate-spin inline mr-2"></i>Carregando computadores...</td></tr>';
+    if (window.lucide) lucide.createIcons();
+  }
   const resComp = await fetch("/api/computers");
   store.globalComputers = await safeJson(resComp);
 
