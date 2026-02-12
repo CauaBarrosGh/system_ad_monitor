@@ -762,6 +762,60 @@
                         </button>
                     </div>
                 </div>
+                <div class="px-6 mb-6">
+                    <div
+                        class="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-300 dark:border-slate-700 flex flex-wrap gap-4 items-end">
+
+                        <div class="w-full sm:w-auto">
+                            <label
+                                class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Data</label>
+                            <input type="date" id="auditFilterDate" onchange="applyAuditFilters()"
+                                class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <div class="w-full sm:w-auto">
+                            <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Tipo
+                                de Ação</label>
+                            <select id="auditFilterAction" onchange="applyAuditFilters()"
+                                class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">Todas</option>
+                                <option value="DESBLOQUEIO">Desbloqueio</option>
+                                <option value="DESLIGAMENTO">Desligamento</option>
+                                <option value="EXCLUSÃO">Exclusão</option>
+                                <option value="EXCLUSÃO COMPUTADOR">Exclusão Computador</option>
+                            </select>
+                        </div>
+
+                        <div class="flex-1 min-w-[200px]">
+                            <label
+                                class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Executor
+                                ou Alvo</label>
+                            <div class="relative">
+                                <i data-lucide="search" class="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400"></i>
+                                <input type="text" id="auditFilterSearch" onkeyup="applyAuditFilters()"
+                                    placeholder="Buscar por nome do admin ou usuário..."
+                                    class="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+
+                        <div class="w-full sm:w-auto">
+                            <label
+                                class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Status</label>
+                            <select id="auditFilterStatus" onchange="applyAuditFilters()"
+                                class="w-full sm:w-32 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">Todos</option>
+                                <option value="SUCESSO">Sucesso</option>
+                                <option value="ERRO">Erro</option>
+                            </select>
+                        </div>
+
+                        <button onclick="clearAuditFilters()"
+                            class="px-3 py-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
+                            title="Limpar Filtros">
+                            <i data-lucide="filter-x" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                </div>
 
                 <!-- Tabela com espaçamento lateral -->
                 <div
