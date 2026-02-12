@@ -422,7 +422,7 @@ exports.deleteComputer = (computerName, adminUser, adminPass) => {
             tlsOptions: { rejectUnauthorized: false }
         });
 
-        // 🔑 Usa a credencial dinâmica (Mesma lógica)
+        // Usa a credencial dinâmica
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
@@ -457,13 +457,22 @@ exports.deleteComputer = (computerName, adminUser, adminPass) => {
                         return resolve({ found: false });
                     }
 
-                    client.del(targetDN, (delErr) => {
+                    // Isso permite apagar objetos que contêm filhos (ex: BitLocker Keys)
+                    const treeDeleteControl = new ldap.Control({
+                        type: '1.2.840.113556.1.4.805', 
+                        criticality: true
+                    });
+
+                    // Passamos o controle como segundo argumento (Array)
+                    client.del(targetDN, [treeDeleteControl], (delErr) => {
                         client.unbind();
+                        
                         if (delErr) {
                             console.error('❌ Erro ao deletar computador:', delErr.message);
                             return reject(new Error('Falha ao excluir do AD: ' + delErr.message));
                         }
-                        console.log('✅ Computador excluído com sucesso.');
+                        
+                        console.log('✅ Computador excluído com sucesso (Tree Delete).');
                         resolve({ found: true, deleted: true });
                     });
                 });
