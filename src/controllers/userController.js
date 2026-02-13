@@ -147,13 +147,17 @@ exports.deleteDisabledUser = async (req, res) => {
 };
 
 exports.createUser = async (req, res) => {
-    try {
-        const sessionUser = req.session?.user;
-        const adminName = sessionUser.displayName;
-        const userData = req.body;
-        console.log(`\n[CONTROLLER] Requisição para criar usuário: ${userData.logonName}`);
+    let adminName = 'Sistema';
+    let targetUser = 'Desconhecido';
 
-        // CHECAGEM DE SEGURANÇA: O usuário já existe?
+    try {
+        adminName = req.session?.user?.displayName || req.user?.displayName || req.user?.username || 'Sistema';
+        
+        const userData = req.body;
+        targetUser = userData.logonName || 'Desconhecido';
+
+        console.log(`\n[CONTROLLER] Requisição para criar usuário: ${targetUser} (Por: ${adminName})`);
+
         const userExists = await ldapService.checkUserExists(userData.logonName);
         if (userExists) {
             console.log(`⚠️ [CONTROLLER] Criação negada. Logon '${userData.logonName}' já está em uso.`);
@@ -163,46 +167,50 @@ exports.createUser = async (req, res) => {
             });
         }
 
-        // RECEBE AS REGRAS DA TELA
         const targetOU = userData.targetOU;
         
-        // Grupo Base (Padrão para todo mundo)
         let finalGroups = [
             'CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'
         ];
 
-        // SE VIERAM GRUPOS EXTRAS DA TELA, NÓS JUNTAMOS AS LISTAS
         if (userData.targetGroups && Array.isArray(userData.targetGroups)) {
             finalGroups = finalGroups.concat(userData.targetGroups);
         }
 
-        // TRUQUE DE SEGURANÇA: Remove grupos duplicados (caso o analista digite SocTodos na tela sem querer)
         finalGroups = [...new Set(finalGroups)];
 
         // Executa a criação no Service
         await ldapService.createNewUserFullProcess(userData, targetOU, finalGroups);
         
-        // Ajuste a chamada abaixo para o nome real da função do seu loggerService
-        await loggerService.logAction(
-            'CADASTRO USUÁRIO',
-            adminName,
-            userData.logonName,
-            'SUCESSO',
-            'Cadastrado novo usuário'
-        );
+        // 3. REGISTRA O SUCESSO
+        try {
+            await loggerService.logAction(
+                'CADASTRO USUÁRIO',
+                adminName,
+                targetUser,
+                'SUCESSO',
+                'Cadastrado novo usuário'
+            );
+        } catch (logErr) {
+            console.error('⚠️ [AVISO] Falha ao registrar log de auditoria (Sucesso):', logErr);
+        }
 
-        // Devolve sucesso
         res.status(201).json({ success: true, message: 'Usuário provisionado com sucesso no AD!' });
 
     } catch (error) {
         console.error('[CONTROLLER ERRO]', error);
-            await loggerService.logAction(
+        
+        try {
+             await loggerService.logAction(
                 'CADASTRO USUÁRIO',
                 adminName,
-                userData.logonName,
+                targetUser,
                 'ERRO',
                 error.message
             );
+        } catch (logErr) {
+            console.error('⚠️ [AVISO] Falha ao registrar log de auditoria (Erro):', logErr);
+        }
         res.status(500).json({ success: false, error: error.message });
     }
 };

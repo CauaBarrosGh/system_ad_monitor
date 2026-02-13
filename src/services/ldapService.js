@@ -562,9 +562,9 @@ exports.checkUserExists = (username) => {
     });
 };
 
-// --- CRIAR NOVO USUÁRIO (COM INJEÇÃO POWERSHELL E GRUPOS BLINDADOS) ---
+// --- CRIAR NOVO USUÁRIO (CRIAÇÃO 100% POWERSHELL + GRUPOS LDAP) ---
 exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         const client = ldap.createClient({
             url: process.env.AD_URL,
             tlsOptions: { rejectUnauthorized: false }
@@ -573,156 +573,145 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
         const bindUser = process.env.AD_USER;
         const bindPass = process.env.AD_PASSWORD;
 
-        client.bind(bindUser, bindPass, async (bindErr) => {
-            if (bindErr) {
-                client.unbind();
-                return reject(new Error('Erro de autenticação no AD.'));
+        const rdnName = `${userData.firstName} ${userData.lastName}`.replace(/([\\,=+<>#;"])/g, '\\$1');
+        const newUserDN = `CN=${rdnName},${targetOU}`;
+        const isExterno = userData.contractType === 'PJ' ? 'TRUE' : 'FALSE';
+
+        try {
+            console.log(`⏳ [SERVICE] Criando conta e injetando atributos via PowerShell (Bypass de Acentos)...`);
+            const pwdLastSetCommand = userData.forcePwdChange ? '$userEntry.put("pwdLastSet", 0)' : '';
+            const descCmd = userData.jobTitle ? `$newUser.Put("description", "${userData.jobTitle.replace(/"/g, '""')}")` : '';
+            const deptCmd = userData.seniority ? `$newUser.Put("departmentNumber", "${userData.seniority.replace(/"/g, '""')}")` : '';
+
+            const psScript = `
+                $ProgressPreference = 'SilentlyContinue'
+                try {
+                    $ouDN = "LDAP://${targetOU.replace(/"/g, '""')}"
+                    $userDN = "LDAP://${newUserDN.replace(/"/g, '""')}"
+                    $bindU = "${bindUser.replace(/"/g, '""')}"
+                    $bindP = "${bindPass.replace(/"/g, '""')}"
+
+                    # 1. Conecta na OU exata (Isso resolve o bug de OUs com "ç" e "õ")
+                    $ouEntry = New-Object System.DirectoryServices.DirectoryEntry($ouDN, $bindU, $bindP)
+
+                    # 2. Cria a casca do usuário com todos os atributos já preenchidos
+                    $newUser = $ouEntry.Children.Add("CN=${rdnName.replace(/"/g, '""')}", "user")
+                    $newUser.Put("sAMAccountName", "${userData.logonName}")
+                    $newUser.Put("userPrincipalName", "${userData.logonName}@soc.com.br")
+                    $newUser.Put("givenName", "${userData.firstName}")
+                    $newUser.Put("sn", "${userData.lastName}")
+                    $newUser.Put("displayName", "${userData.firstName} ${userData.lastName}")
+                    ${descCmd}
+                    ${deptCmd}
+                    $newUser.Put("colaborador", "TRUE")
+                    $newUser.Put("colaboradorexterno", "${isExterno}")
+                    $newUser.SetInfo()
+
+                    # 3. Reconecta especificamente na conta nova e injeta a Senha / Ativação
+                    $userEntry = New-Object System.DirectoryServices.DirectoryEntry($userDN, $bindU, $bindP)
+                    $userEntry.SetPassword('${userData.password.replace(/'/g, "''")}')
+                    $userEntry.put("userAccountControl", 512)
+                    ${pwdLastSetCommand}
+                    $userEntry.SetInfo()
+
+                    Write-Output "PS_SUCCESS"
+                } catch {
+                    Write-Error $_.Exception.Message
+                }
+            `;
+
+            const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
+            const { stdout, stderr } = await execPromise(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${base64Script}`);
+
+            if (!stdout.includes('PS_SUCCESS') && stderr && stderr.trim() !== '') {
+                throw new Error(`Falha no Active Directory (PowerShell): ${stderr}`);
             }
+            console.log('✅ [SUCESSO] Conta criada, atributos preenchidos e ativada pelo sistema nativo.');
 
-            try {
-                // Monta o caminho exato onde o usuário vai nascer
-                const rdnName = `${userData.firstName} ${userData.lastName}`.replace(/([\\,=+<>#;"])/g, '\\$1');
-                const newUserDN = `CN=${rdnName},${targetOU}`;
-                const isExterno = userData.contractType === 'PJ' ? 'TRUE' : 'FALSE';
+            await new Promise((resolveBind, rejectBind) => {
+                client.bind(bindUser, bindPass, (err) => {
+                    if (err) rejectBind(new Error('Erro de autenticação no AD para inserção nos grupos.'));
+                    resolveBind();
+                });
+            });
 
-                // Cria a conta "dormente" (Desativada para podermos injetar a senha)
-                const newUserEntry = {
-                    sAMAccountName: userData.logonName,
-                    userPrincipalName: `${userData.logonName}@soc.com.br`, 
-                    givenName: userData.firstName,
-                    sn: userData.lastName,
-                    displayName: `${userData.firstName} ${userData.lastName}`,
-                    description: userData.jobTitle, 
-                    departmentNumber: userData.seniority, 
-                    colaborador: 'TRUE',       
-                    colaboradorexterno: isExterno,
-                    userAccountControl: '546',
-                    objectClass: ['top', 'person', 'organizationalPerson', 'user']
-                };
+            for (const groupDN of targetGroups) {
+                await new Promise((resolveGroup) => {
+                    const cnMatch = groupDN.match(/^CN=([^,]+)/);
+                    if (!cnMatch) return resolveGroup();
 
-                // Passo 1: Cria a "casca" do usuário via LDAP
-                console.log(`⏳ [SERVICE] Criando conta dormente em: ${newUserDN}`);
-                await new Promise((resolveAdd, rejectAdd) => {
-                    client.add(newUserDN, newUserEntry, (addErr) => {
-                        if (addErr) return rejectAdd(new Error(`Falha do AD na criação: ${addErr.message}`));
-                        console.log('✅ [SUCESSO] Conta base criada.');
-                        resolveAdd();
+                    const groupCN = cnMatch[1];
+                    const groupSearchOptions = {
+                        filter: `(&(objectClass=group)(cn=${groupCN}))`,
+                        scope: 'sub',
+                        attributes: ['objectGUID', 'distinguishedName', 'cn']
+                    };
+
+                    client.search(process.env.AD_BASE, groupSearchOptions, (searchErr, searchRes) => {
+                        if (searchErr) return resolveGroup();
+
+                        let groupGUID = null;
+                        let groupDNConstructor = null;
+
+                        searchRes.on('searchEntry', (entry) => {
+                            if (entry.objectName && entry.objectName.constructor) {
+                                groupDNConstructor = entry.objectName.constructor;
+                            }
+                            const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
+                            if (guidAttr) {
+                                if (guidAttr.buffers && guidAttr.buffers.length > 0) {
+                                    groupGUID = guidAttr.buffers[0].toString('hex');
+                                } else if (guidAttr.values && guidAttr.values.length > 0) {
+                                    groupGUID = Buffer.from(guidAttr.values[0], 'binary').toString('hex');
+                                }
+                            }
+                        });
+
+                        searchRes.on('end', () => {
+                            if (!groupGUID) return resolveGroup();
+
+                            const magicString = `<GUID=${groupGUID}>`;
+                            let targetGroupDN;
+                            if (groupDNConstructor) {
+                                targetGroupDN = new groupDNConstructor();
+                                targetGroupDN.toString = () => magicString;
+                                targetGroupDN.format = () => magicString;
+                            } else {
+                                targetGroupDN = magicString;
+                            }
+
+                            const change = new ldap.Change({
+                                operation: 'add',
+                                modification: { type: 'member', values: [newUserDN] }
+                            });
+
+                            client.modify(targetGroupDN, change, (modErr) => {
+                                if (modErr) {
+                                    if (modErr.message.includes('Entry Already Exists') || modErr.message.includes('Already exists')) {
+                                        console.log(`✅ [SUCESSO] Já estava no grupo: ${groupCN}`);
+                                    } else {
+                                        console.log(`⚠️ [AVISO] Falha ao incluir no grupo ${groupCN}: ${modErr.message}`);
+                                    }
+                                } else {
+                                    console.log(`✅ [SUCESSO] Inserido no grupo: ${groupCN}`);
+                                }
+                                resolveGroup();
+                            });
+                        });
+
+                        searchRes.on('error', () => resolveGroup());
                     });
                 });
-
-                // 💡 PASSO 2: ADICIONAR AOS GRUPOS (Espera obediente)
-                for (const groupDN of targetGroups) {
-                    await new Promise((resolveGroup) => {
-                        const cnMatch = groupDN.match(/^CN=([^,]+)/);
-                        if (!cnMatch) return resolveGroup();
-                        
-                        const groupCN = cnMatch[1];
-                        const groupSearchOptions = {
-                            filter: `(&(objectClass=group)(cn=${groupCN}))`,
-                            scope: 'sub',
-                            attributes: ['objectGUID', 'distinguishedName', 'cn']
-                        };
-                        
-                        client.search(process.env.AD_BASE, groupSearchOptions, (searchErr, searchRes) => {
-                            if (searchErr) return resolveGroup();
-                            
-                            let groupGUID = null;
-                            let groupDNConstructor = null;
-                            
-                            searchRes.on('searchEntry', (entry) => {
-                                if (entry.objectName && entry.objectName.constructor) {
-                                    groupDNConstructor = entry.objectName.constructor;
-                                }
-                                const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
-                                if (guidAttr) {
-                                    if (guidAttr.buffers && guidAttr.buffers.length > 0) {
-                                        groupGUID = guidAttr.buffers[0].toString('hex');
-                                    } else if (guidAttr.values && guidAttr.values.length > 0) {
-                                        groupGUID = Buffer.from(guidAttr.values[0], 'binary').toString('hex');
-                                    }
-                                }
-                            });
-                            
-                            // 💡 A MÁGICA ESTÁ AQUI: Só altera o grupo DEPOIS que a busca termina totalmente!
-                            searchRes.on('end', () => {
-                                if (!groupGUID) return resolveGroup();
-
-                                const magicString = `<GUID=${groupGUID}>`;
-                                let targetGroupDN;
-                                if (groupDNConstructor) {
-                                    targetGroupDN = new groupDNConstructor();
-                                    targetGroupDN.toString = () => magicString;
-                                    targetGroupDN.format = () => magicString;
-                                } else {
-                                    targetGroupDN = magicString;
-                                }
-                                
-                                const change = new ldap.Change({
-                                    operation: 'add',
-                                    modification: {
-                                        type: 'member',
-                                        values: [newUserDN] 
-                                    }
-                                });
-                                
-                                client.modify(targetGroupDN, change, (modErr) => {
-                                    if (modErr) {
-                                        // Evita erro se o usuário já estiver no grupo
-                                        if (modErr.message.includes('Entry Already Exists') || modErr.message.includes('Already exists')) {
-                                            console.log(`✅ [SUCESSO] Já estava no grupo: ${groupCN}`);
-                                        } else {
-                                            console.log(`⚠️ [AVISO] Falha ao incluir no grupo ${groupCN}: ${modErr.message}`);
-                                        }
-                                    } else {
-                                        console.log(`✅ [SUCESSO] Inserido no grupo: ${groupCN}`);
-                                    }
-                                    resolveGroup(); // 💡 Só libera para o próximo grupo quando esse terminar 100%
-                                });
-                            });
-
-                            searchRes.on('error', () => resolveGroup());
-                        });
-                    });
-                }
-
-                client.unbind();
-                console.log('⏳ [SERVICE] Injetando senha e ativando conta via PowerShell...');
-                
-                const pwdLastSetCommand = userData.forcePwdChange ? '$entry.put("pwdLastSet", 0)' : '';
-                const psScript = `
-                    $ProgressPreference = 'SilentlyContinue'
-                    try {
-                        $dn = "LDAP://${newUserDN.replace(/"/g, '""')}"
-                        $user = "${bindUser.replace(/"/g, '""')}"
-                        $pass = "${bindPass.replace(/"/g, '""')}"
-                        $entry = New-Object System.DirectoryServices.DirectoryEntry($dn, $user, $pass)
-                        
-                        $entry.SetPassword('${userData.password.replace(/'/g, "''")}')
-                        $entry.put("userAccountControl", 512)
-                        ${pwdLastSetCommand}
-                        $entry.SetInfo()
-                        
-                        Write-Output "PS_SUCCESS"
-                    } catch {
-                        Write-Error $_.Exception.Message
-                    }
-                `;
-                const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
-                const { stdout, stderr } = await execPromise(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${base64Script}`);
-                
-                if (!stdout.includes('PS_SUCCESS') && stderr && stderr.trim() !== '') {
-                    console.error(`⚠️ [AVISO POWERSHELL] ${stderr}`);
-                    throw new Error("Conta criada, mas falha ao injetar a senha via PowerShell.");
-                }
-
-                console.log('✨ [SUCESSO TOTAL] Grupos, senha e ativação aplicados com sucesso!');
-                resolve({ success: true });
-
-            } catch (processError) {
-                client.unbind(); 
-                console.error('❌ [ERRO CRÍTICO NA CRIAÇÃO]', processError);
-                reject(processError);
             }
-        });
+
+            client.unbind();
+            console.log('✨ [SUCESSO TOTAL] Processo 100% finalizado e auditado!');
+            resolve({ success: true });
+
+        } catch (processError) {
+            client.unbind();
+            console.error('❌ [ERRO CRÍTICO NA CRIAÇÃO]', processError);
+            reject(processError);
+        }
     });
 };
