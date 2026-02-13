@@ -10,6 +10,7 @@ import { loadAuditLogs } from "./features/audit.js";
 import { toggleLegacyFilter, sortDisabledTable , confirmDeleteDisabled} from "./features/disabledTable.js";
 import { confirmDeleteComputer } from "./features/computersTable.js";
 import { triggerManualSync } from "./features/system.js";
+import { generateLogonName, generateSecurePassword, submitNewUser, updateOuAndGroup } from "./features/createUser.js";
 
 // Inicialização base
 initTheme();
@@ -34,6 +35,10 @@ window.confirmDeleteDisabled = confirmDeleteDisabled;
 window.confirmDeleteComputer = confirmDeleteComputer;
 window.loadInventory = loadInventory;
 window.triggerManualSync = triggerManualSync;
+window.generateLogonName = generateLogonName;
+window.generateSecurePassword = generateSecurePassword;
+window.submitNewUser = submitNewUser;
+window.updateOuAndGroup = updateOuAndGroup;
 
 
 // Carregamento inicial

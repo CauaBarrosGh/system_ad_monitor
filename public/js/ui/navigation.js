@@ -1,6 +1,6 @@
 import { loadOverview, loadDetails, loadInventory, loadSecurity, loadAudit, loadDisabled} from "../features/sectionLoader.js";
 
-const tabs = ["overview", "details", "inventory", "security", "audit","disabled"];
+const tabs = ["overview", "details", "inventory", "security", "audit","disabled","register"];
 let currentTab = "overview";
 const loading = new Map();
 
@@ -11,6 +11,7 @@ const loaders = {
   security: loadSecurity,
   audit: loadAudit,
   disabled: loadDisabled,
+  register: async () => { return; },
 };
 
 export async function switchTab(tabId) {
@@ -60,6 +61,7 @@ function setHeaderTitle(tabId) {
     security: "Gerenciamento de Risco",
     audit: "Auditoria & Logs",
     disabled: "Usuários Desativados",
+    register: "Novo Usuário",
   };
 
   const headerTitle = document.getElementById("header-title");

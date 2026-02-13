@@ -1,5 +1,8 @@
 const ldap = require('ldapjs');
 const { DISABLED_OU } = require('../config/constants');
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec); 
 
 // Função auxiliar para formatar data (DD/MM/AAAA)
 function getFormattedDate() {
@@ -507,6 +510,219 @@ exports.deleteComputer = (computerName, adminUser, adminPass) => {
                     reject(err);
                 });
             });
+        });
+    });
+};
+
+// Adicione junto das suas outras funções no ldapService.js
+
+// --- VERIFICAR SE USUÁRIO EXISTE ---
+exports.checkUserExists = (username) => {
+    return new Promise((resolve, reject) => {
+        const client = ldap.createClient({
+            url: process.env.AD_URL,
+            tlsOptions: { rejectUnauthorized: false }
+        });
+
+        client.bind(process.env.AD_USER, process.env.AD_PASSWORD, (bindErr) => {
+            if (bindErr) {
+                client.unbind();
+                return reject(new Error('Erro de autenticação no AD.'));
+            }
+
+            const searchOptions = {
+                filter: `(sAMAccountName=${username})`,
+                scope: 'sub',
+                attributes: ['sAMAccountName']
+            };
+
+            client.search(process.env.AD_BASE, searchOptions, (searchErr, searchRes) => {
+                if (searchErr) {
+                    client.unbind();
+                    return reject(new Error('Erro ao buscar usuário no AD.'));
+                }
+
+                let exists = false;
+
+                searchRes.on('searchEntry', () => {
+                    exists = true;
+                });
+
+                searchRes.on('end', () => {
+                    client.unbind();
+                    resolve(exists);
+                });
+
+                searchRes.on('error', (err) => {
+                    client.unbind();
+                    reject(err);
+                });
+            });
+        });
+    });
+};
+
+// --- CRIAR NOVO USUÁRIO (COM INJEÇÃO POWERSHELL E GRUPOS BLINDADOS) ---
+exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
+    return new Promise((resolve, reject) => {
+        const client = ldap.createClient({
+            url: process.env.AD_URL,
+            tlsOptions: { rejectUnauthorized: false }
+        });
+
+        const bindUser = process.env.AD_USER;
+        const bindPass = process.env.AD_PASSWORD;
+
+        client.bind(bindUser, bindPass, async (bindErr) => {
+            if (bindErr) {
+                client.unbind();
+                return reject(new Error('Erro de autenticação no AD.'));
+            }
+
+            try {
+                // Monta o caminho exato onde o usuário vai nascer
+                const rdnName = `${userData.firstName} ${userData.lastName}`.replace(/([\\,=+<>#;"])/g, '\\$1');
+                const newUserDN = `CN=${rdnName},${targetOU}`;
+                const isExterno = userData.contractType === 'PJ' ? 'TRUE' : 'FALSE';
+
+                // Cria a conta "dormente" (Desativada para podermos injetar a senha)
+                const newUserEntry = {
+                    sAMAccountName: userData.logonName,
+                    userPrincipalName: `${userData.logonName}@soc.com.br`, 
+                    givenName: userData.firstName,
+                    sn: userData.lastName,
+                    displayName: `${userData.firstName} ${userData.lastName}`,
+                    description: userData.jobTitle, 
+                    departmentNumber: userData.seniority, 
+                    colaborador: 'TRUE',       
+                    colaboradorexterno: isExterno,
+                    userAccountControl: '546',
+                    objectClass: ['top', 'person', 'organizationalPerson', 'user']
+                };
+
+                // Passo 1: Cria a "casca" do usuário via LDAP
+                console.log(`⏳ [SERVICE] Criando conta dormente em: ${newUserDN}`);
+                await new Promise((resolveAdd, rejectAdd) => {
+                    client.add(newUserDN, newUserEntry, (addErr) => {
+                        if (addErr) return rejectAdd(new Error(`Falha do AD na criação: ${addErr.message}`));
+                        console.log('✅ [SUCESSO] Conta base criada.');
+                        resolveAdd();
+                    });
+                });
+
+                // 💡 PASSO 2: ADICIONAR AOS GRUPOS (Espera obediente)
+                for (const groupDN of targetGroups) {
+                    await new Promise((resolveGroup) => {
+                        const cnMatch = groupDN.match(/^CN=([^,]+)/);
+                        if (!cnMatch) return resolveGroup();
+                        
+                        const groupCN = cnMatch[1];
+                        const groupSearchOptions = {
+                            filter: `(&(objectClass=group)(cn=${groupCN}))`,
+                            scope: 'sub',
+                            attributes: ['objectGUID', 'distinguishedName', 'cn']
+                        };
+                        
+                        client.search(process.env.AD_BASE, groupSearchOptions, (searchErr, searchRes) => {
+                            if (searchErr) return resolveGroup();
+                            
+                            let groupGUID = null;
+                            let groupDNConstructor = null;
+                            
+                            searchRes.on('searchEntry', (entry) => {
+                                if (entry.objectName && entry.objectName.constructor) {
+                                    groupDNConstructor = entry.objectName.constructor;
+                                }
+                                const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
+                                if (guidAttr) {
+                                    if (guidAttr.buffers && guidAttr.buffers.length > 0) {
+                                        groupGUID = guidAttr.buffers[0].toString('hex');
+                                    } else if (guidAttr.values && guidAttr.values.length > 0) {
+                                        groupGUID = Buffer.from(guidAttr.values[0], 'binary').toString('hex');
+                                    }
+                                }
+                            });
+                            
+                            // 💡 A MÁGICA ESTÁ AQUI: Só altera o grupo DEPOIS que a busca termina totalmente!
+                            searchRes.on('end', () => {
+                                if (!groupGUID) return resolveGroup();
+
+                                const magicString = `<GUID=${groupGUID}>`;
+                                let targetGroupDN;
+                                if (groupDNConstructor) {
+                                    targetGroupDN = new groupDNConstructor();
+                                    targetGroupDN.toString = () => magicString;
+                                    targetGroupDN.format = () => magicString;
+                                } else {
+                                    targetGroupDN = magicString;
+                                }
+                                
+                                const change = new ldap.Change({
+                                    operation: 'add',
+                                    modification: {
+                                        type: 'member',
+                                        values: [newUserDN] 
+                                    }
+                                });
+                                
+                                client.modify(targetGroupDN, change, (modErr) => {
+                                    if (modErr) {
+                                        // Evita erro se o usuário já estiver no grupo
+                                        if (modErr.message.includes('Entry Already Exists') || modErr.message.includes('Already exists')) {
+                                            console.log(`✅ [SUCESSO] Já estava no grupo: ${groupCN}`);
+                                        } else {
+                                            console.log(`⚠️ [AVISO] Falha ao incluir no grupo ${groupCN}: ${modErr.message}`);
+                                        }
+                                    } else {
+                                        console.log(`✅ [SUCESSO] Inserido no grupo: ${groupCN}`);
+                                    }
+                                    resolveGroup(); // 💡 Só libera para o próximo grupo quando esse terminar 100%
+                                });
+                            });
+
+                            searchRes.on('error', () => resolveGroup());
+                        });
+                    });
+                }
+
+                client.unbind();
+                console.log('⏳ [SERVICE] Injetando senha e ativando conta via PowerShell...');
+                
+                const pwdLastSetCommand = userData.forcePwdChange ? '$entry.put("pwdLastSet", 0)' : '';
+                const psScript = `
+                    $ProgressPreference = 'SilentlyContinue'
+                    try {
+                        $dn = "LDAP://${newUserDN.replace(/"/g, '""')}"
+                        $user = "${bindUser.replace(/"/g, '""')}"
+                        $pass = "${bindPass.replace(/"/g, '""')}"
+                        $entry = New-Object System.DirectoryServices.DirectoryEntry($dn, $user, $pass)
+                        
+                        $entry.SetPassword('${userData.password.replace(/'/g, "''")}')
+                        $entry.put("userAccountControl", 512)
+                        ${pwdLastSetCommand}
+                        $entry.SetInfo()
+                        
+                        Write-Output "PS_SUCCESS"
+                    } catch {
+                        Write-Error $_.Exception.Message
+                    }
+                `;
+                const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
+                const { stdout, stderr } = await execPromise(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${base64Script}`);
+                
+                if (!stdout.includes('PS_SUCCESS') && stderr && stderr.trim() !== '') {
+                    console.error(`⚠️ [AVISO POWERSHELL] ${stderr}`);
+                    throw new Error("Conta criada, mas falha ao injetar a senha via PowerShell.");
+                }
+
+                console.log('✨ [SUCESSO TOTAL] Grupos, senha e ativação aplicados com sucesso!');
+                resolve({ success: true });
+
+            } catch (processError) {
+                client.unbind(); 
+                console.error('❌ [ERRO CRÍTICO NA CRIAÇÃO]', processError);
+                reject(processError);
+            }
         });
     });
 };

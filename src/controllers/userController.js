@@ -145,3 +145,64 @@ exports.deleteDisabledUser = async (req, res) => {
         res.status(500).json({ error: 'Erro interno ao excluir usuário. Verifique suas permissões.' });
     }
 };
+
+exports.createUser = async (req, res) => {
+    try {
+        const sessionUser = req.session?.user;
+        const adminName = sessionUser.displayName;
+        const userData = req.body;
+        console.log(`\n[CONTROLLER] Requisição para criar usuário: ${userData.logonName}`);
+
+        // CHECAGEM DE SEGURANÇA: O usuário já existe?
+        const userExists = await ldapService.checkUserExists(userData.logonName);
+        if (userExists) {
+            console.log(`⚠️ [CONTROLLER] Criação negada. Logon '${userData.logonName}' já está em uso.`);
+            return res.status(400).json({ 
+                success: false, 
+                error: `O logon "${userData.logonName}" já está registrado no Active Directory.` 
+            });
+        }
+
+        // RECEBE AS REGRAS DA TELA
+        const targetOU = userData.targetOU;
+        
+        // Grupo Base (Padrão para todo mundo)
+        let finalGroups = [
+            'CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'
+        ];
+
+        // SE VIERAM GRUPOS EXTRAS DA TELA, NÓS JUNTAMOS AS LISTAS
+        if (userData.targetGroups && Array.isArray(userData.targetGroups)) {
+            finalGroups = finalGroups.concat(userData.targetGroups);
+        }
+
+        // TRUQUE DE SEGURANÇA: Remove grupos duplicados (caso o analista digite SocTodos na tela sem querer)
+        finalGroups = [...new Set(finalGroups)];
+
+        // Executa a criação no Service
+        await ldapService.createNewUserFullProcess(userData, targetOU, finalGroups);
+        
+        // Ajuste a chamada abaixo para o nome real da função do seu loggerService
+        await loggerService.logAction(
+            'CADASTRO USUÁRIO',
+            adminName,
+            userData.logonName,
+            'SUCESSO',
+            'Cadastrado novo usuário'
+        );
+
+        // Devolve sucesso
+        res.status(201).json({ success: true, message: 'Usuário provisionado com sucesso no AD!' });
+
+    } catch (error) {
+        console.error('[CONTROLLER ERRO]', error);
+            await loggerService.logAction(
+                'CADASTRO USUÁRIO',
+                adminName,
+                userData.logonName,
+                'ERRO',
+                error.message
+            );
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

@@ -39,7 +39,10 @@ router.delete('/api/disabled/:username', requireAuth, userController.deleteDisab
 // Rota para deletar computador
 router.delete('/api/inventory/computers/:computerName', requireAuth, computerController.deleteComputer);
 
-// Adicione esta nova rota:
+// Rodar collector
 router.post('/system/sync', systemController.runCollector);
+
+// Criar usuario
+router.post('/api/users', requireAuth, userController.createUser);
 
 module.exports = router;
