@@ -122,7 +122,6 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
 
         client.on('error', (err) => console.error('[CLIENT ERR]', err.message));
 
-        // 🔑 Usa a credencial dinâmica
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
@@ -137,7 +136,7 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                 scope: 'sub',
                 paged: true,
                 sizeLimit: 0,
-                attributes: ['dn', 'cn', 'memberOf', 'userAccountControl', 'displayName', 'objectGUID']
+                attributes: ['dn', 'cn', 'memberOf', 'userAccountControl', 'displayName', 'objectGUID', 'distinguishedName']
             };
 
             client.search(process.env.AD_BASE, searchOptions, (searchErr, searchRes) => {
@@ -149,11 +148,17 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                 let userData = null;
 
                 searchRes.on('searchEntry', (entry) => {
-                    
                     const cnVals = getAttributeValue(entry.attributes, 'cn');
                     const uacVals = getAttributeValue(entry.attributes, 'userAccountControl');
                     const displayVals = getAttributeValue(entry.attributes, 'displayName');
                     const memberOfVals = getAttributeValue(entry.attributes, 'memberOf');
+                    
+                    // 1. STRING CRUA DO AD (Com os \c3\a7) para remover dos grupos
+                    const pureDNVals = getAttributeValue(entry.attributes, 'distinguishedName');
+                    const rawDNString = (pureDNVals && pureDNVals.length > 0) ? pureDNVals[0] : entry.objectName.toString();
+                    
+                    // 2. STRING TRADUZIDA DO NODE (Com "ç" e "õ" perfeitos) para mover a pasta
+                    const translatedDNString = entry.objectName.toString();
                     
                     let userGUID = null;
                     const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
@@ -165,14 +170,20 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                         }
                     }
 
+                    let DNConstructor = null;
+                    if (entry.objectName && entry.objectName.constructor) {
+                        DNConstructor = entry.objectName.constructor;
+                    }
+
                     userData = {
-                        dn: entry.objectName.toString(),
-                        dnRaw: entry.objectName,
+                        dnForGroups: rawDNString,        // 🎯 Usado nos grupos
+                        dnForMove: translatedDNString,   // 🎯 Usado no ModifyDN
                         cn: cnVals ? cnVals[0] : '',
                         userAccountControl: uacVals ? uacVals[0] : '512',
                         displayName: displayVals ? displayVals[0] : username,
                         memberOf: memberOfVals || [],
-                        guid: userGUID
+                        guid: userGUID,
+                        DNConstructor: DNConstructor 
                     };
                 });
 
@@ -198,12 +209,10 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                             await new Promise((resolveGroup) => {
                                 const cnMatch = groupDN.match(/^CN=([^,]+)/);
                                 if (!cnMatch) {
-                                    console.log(`⚠️ [AVISO] Não foi possível extrair CN de: ${groupDN}`);
                                     return resolveGroup();
                                 }
                                 
                                 const groupCN = cnMatch[1];
-                                
                                 const groupSearchOptions = {
                                     filter: `(&(objectClass=group)(cn=${groupCN}))`,
                                     scope: 'sub',
@@ -211,17 +220,14 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                 };
                                 
                                 client.search(process.env.AD_BASE, groupSearchOptions, (searchErr, searchRes) => {
-                                    if (searchErr) {
-                                        console.log(`⚠️ [AVISO] Erro ao buscar grupo: ${searchErr.message}`);
-                                        return resolveGroup();
-                                    }
+                                    if (searchErr) return resolveGroup();
                                     
                                     let groupGUID = null;
-                                    let DNConstructor = null;
+                                    let groupDNConstructor = null;
                                     
                                     searchRes.on('searchEntry', (entry) => {
                                         if (entry.objectName && entry.objectName.constructor) {
-                                            DNConstructor = entry.objectName.constructor;
+                                            groupDNConstructor = entry.objectName.constructor;
                                         }
                                         
                                         const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
@@ -237,8 +243,8 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                             const magicString = `<GUID=${groupGUID}>`;
                                             let targetGroupDN;
                                             
-                                            if (DNConstructor) {
-                                                targetGroupDN = new DNConstructor();
+                                            if (groupDNConstructor) {
+                                                targetGroupDN = new groupDNConstructor();
                                                 targetGroupDN.toString = () => magicString;
                                                 targetGroupDN.format = () => magicString;
                                             } else {
@@ -249,40 +255,45 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                                 operation: 'delete',
                                                 modification: {
                                                     type: 'member',
-                                                    values: [userData.dn]
+                                                    values: [userData.dnForGroups] // 🎯 STRING CRUA DO AD
                                                 }
                                             });
                                             
                                             client.modify(targetGroupDN, change, (modErr) => {
                                                 if (modErr) {
-                                                    console.log(`⚠️ [AVISO] Falha ao remover: ${modErr.message}`);
+                                                    if (modErr.message.includes('Unwilling') || modErr.message.includes('No Such Object')) {
+                                                        console.log(`🗑️ [INFO] Usuário já havia sido removido do grupo.`);
+                                                    } else {
+                                                        console.log(`⚠️ [AVISO] Falha ao remover: ${modErr.message}`);
+                                                    }
                                                 } else {
                                                     console.log(`🗑️ [SUCESSO] Removido do grupo: ${groupCN}`);
                                                 }
                                                 resolveGroup();
                                             });
                                         } else {
-                                            console.log(`⚠️ [AVISO] GUID não encontrado para o grupo`);
                                             resolveGroup();
                                         }
                                     });
-                                    
-                                    searchRes.on('end', () => {
-                                        if (!groupGUID) {
-                                            console.log(`⚠️ [AVISO] Grupo "${groupCN}" não encontrado ou sem GUID`);
-                                            resolveGroup();
-                                        }
-                                    });
-                                    
-                                    searchRes.on('error', (err) => {
-                                        console.log(`⚠️ [AVISO] Erro na busca: ${err.message}`);
-                                        resolveGroup();
-                                    });
+                                    searchRes.on('end', () => resolveGroup());
+                                    searchRes.on('error', () => resolveGroup());
                                 });
                             });
                         }
 
                         // --- DESATIVAR + RENOMEAR + DESCRIÇÃO ---
+                        let targetUserDN = userData.dnForMove;
+                        if (userData.guid) {
+                            const magicUserString = `<GUID=${userData.guid}>`;
+                            if (userData.DNConstructor) {
+                                targetUserDN = new userData.DNConstructor();
+                                targetUserDN.toString = () => magicUserString;
+                                targetUserDN.format = () => magicUserString;
+                            } else {
+                                targetUserDN = magicUserString;
+                            }
+                        }
+
                         const currentUAC = parseInt(userData.userAccountControl, 10);
                         const newUAC = currentUAC | 0x0002; 
                         
@@ -290,22 +301,13 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                         const newDesc = `Desligado em ${getFormattedDate()}`;
 
                         const modifications = [
-                            new ldap.Change({ 
-                                operation: 'replace', 
-                                modification: { type: 'userAccountControl', values: [newUAC.toString()] }
-                            }),
-                            new ldap.Change({ 
-                                operation: 'replace', 
-                                modification: { type: 'description', values: [newDesc] }
-                            }),
-                            new ldap.Change({ 
-                                operation: 'replace', 
-                                modification: { type: 'displayName', values: [newDisplay] }
-                            })
+                            new ldap.Change({ operation: 'replace', modification: { type: 'userAccountControl', values: [newUAC.toString()] } }),
+                            new ldap.Change({ operation: 'replace', modification: { type: 'description', values: [newDesc] } }),
+                            new ldap.Change({ operation: 'replace', modification: { type: 'displayName', values: [newDisplay] } })
                         ];
                         
                         await new Promise((resolveMod, rejectMod) => {
-                            client.modify(userData.dn, modifications, (modErr) => {
+                            client.modify(targetUserDN, modifications, (modErr) => {
                                 if (modErr) return rejectMod(new Error('Erro ao atualizar atributos: ' + modErr.message));
                                 console.log('✅ [SUCESSO] Atributos atualizados.');
                                 resolveMod();
@@ -313,18 +315,41 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                         });
 
                         // --- MOVER PARA PASTA DE DESATIVADOS ---
-                        const rdn = `CN=${userData.cn}`;
-                        const newDN = `${rdn},${DISABLED_OU}`;
+                        let rdnName = userData.cn.replace(/([\\,=+<>#;"])/g, '\\$1');
+                        const newDN = `CN=${rdnName},${DISABLED_OU}`;
                         
                         await new Promise((resolveMove, rejectMove) => {
-                            client.modifyDN(userData.dn, newDN, (moveErr) => {
-                                if (moveErr) {
-                                    console.error(`❌ [ERRO MOVE]`, moveErr.message);
-                                    return resolveMove({ warning: 'Usuário desativado e renomeado, mas falha ao mover de pasta.' });
-                                }
-                                console.log('✨ [SUCESSO] Usuário movido para pasta de desativados.');
-                                resolveMove({ success: true });
-                            });
+                            if (userData.DNConstructor && userData.guid) {
+                                const DNClass = userData.DNConstructor;
+                                const originalFromString = DNClass.fromString;
+                                
+                                // Interceptamos a função de leitura dela para forçar o uso do GUID 
+                                DNClass.fromString = function(str) {
+                                    if (str === 'MAGIC_MOVE_TOKEN') {
+                                        const magicObj = new DNClass();
+                                        magicObj.toString = () => `<GUID=${userData.guid}>`;
+                                        magicObj.format = () => `<GUID=${userData.guid}>`;
+                                        return magicObj;
+                                    }
+                                    return originalFromString.call(this, str);
+                                };
+                                
+                                client.modifyDN('MAGIC_MOVE_TOKEN', newDN, (moveErr) => {
+                                    DNClass.fromString = originalFromString;
+                                    
+                                    if (moveErr) {
+                                        console.error(`❌ [ERRO MOVE]`, moveErr.message);
+                                        return resolveMove({ warning: 'Usuário desativado, mas falha ao mover de pasta.' });
+                                    }
+                                    console.log('✨ [SUCESSO] Usuário movido para pasta de desativados.');
+                                    resolveMove({ success: true });
+                                });
+                            } else {
+                                client.modifyDN(userData.dnForMove, newDN, (moveErr) => {
+                                    if (moveErr) return resolveMove({ warning: 'Falha ao mover.' });
+                                    resolveMove({ success: true });
+                                });
+                            }
                         });
 
                         client.unbind();
