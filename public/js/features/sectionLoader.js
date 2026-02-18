@@ -359,29 +359,28 @@ export async function refreshAfterUserAction() {
   store.loaded.overview = false;
   store.loaded.details = false;
   store.loaded.security = false;
+  store.loaded.audit = false;
 
   // Descobre qual aba está ativa (sem depender do navigation.js)
   const activeTab = getActiveTabFromDOM();
 
   // Recarrega somente a aba que o usuário está vendo (forçado)
-  if (activeTab === "details") {
+  if (activeTab === "overview") {
+    await loadOverview({ force: true });
+  } else if (activeTab === "details") {
     await loadDetails({ force: true });
   } else if (activeTab === "security") {
     await loadSecurity({ force: true });
-  } else {
-    await loadOverview({ force: true });
-  }
-
-  // Aquece overview em background se você estiver em details
-  if (activeTab !== "overview") {
-    setTimeout(() => loadOverview({ force: true }).catch(() => {}), 200);
+  } else if (activeTab === "audit") {
+    await loadAudit({ force: true });
   }
 }
 
 export function getActiveTabFromDOM() {
-  const ids = ["overview", "details", "inventory", "security", "audit", "disabled"];
-  return ids.find((id) => {
+  const ids = ["overview", "details", "inventory", "security", "audit", "disabled", "register"];
+  const found = ids.find((id) => {
     const el = document.getElementById("view-" + id);
     return el && !el.classList.contains("hidden");
-  }) || "overview";
+  });
+  return found || null;
 }

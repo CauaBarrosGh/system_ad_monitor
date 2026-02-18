@@ -484,16 +484,54 @@ async function runJustDisabledUsers() {
     });
 }
 
-// --- CONTROLE DE EXECUÇÃO (A MÁGICA ACONTECE AQUI) ---
+// Criação de Usuário
+async function syncUsers() {
+    console.log('🔄 [API] Coletor invocado para sincronizar usuários ATIVOS...');
+    let dbConnection;
+    try { 
+        dbConnection = await mysql.createConnection(MYSQL_CONFIG); 
+    } catch (e) { 
+        console.error('❌ [API] Erro Banco:', e.message);
+        throw e;
+    }
 
-// 1. Se o arquivo foi chamado diretamente pelo terminal (node collector.js)
+    const client = ldap.createClient({ url: AD_CONFIG.url });
+
+    return new Promise((resolve, reject) => {
+        client.bind(AD_CONFIG.bindDN, AD_CONFIG.bindCredentials, async (err) => {
+            if (err) { 
+                dbConnection.end(); 
+                return reject(err); 
+            }
+            try {
+                // Precisamos mapear os departamentos/líderes primeiro
+                await buildDepartmentMap(client);
+                // Agora buscamos os usuários e atualizamos o banco
+                await fetchUsers(client, dbConnection);
+                
+                console.log('✅ [API] Sincronização de usuários concluída.');
+                resolve();
+            } catch (execErr) { 
+                console.error('❌ [API] Erro no syncUsers:', execErr);
+                reject(execErr);
+            } finally { 
+                client.unbind(); 
+                await dbConnection.end(); 
+            }
+        });
+    });
+}
+
+// --- CONTROLE DE EXECUÇÃO ---
+// Se o arquivo foi chamado diretamente pelo terminal (node collector.js)
 if (require.main === module) {
     main();
 } 
-// 2. Se o arquivo foi importado por outro (ex: require('./collector') na API)
+// Se o arquivo foi importado pela API
 else {
     module.exports = {
         main,
-        runJustDisabledUsers 
+        runJustDisabledUsers,
+        syncUsers 
     };
 }

@@ -149,11 +149,11 @@ exports.deleteDisabledUser = async (req, res) => {
 exports.createUser = async (req, res) => {
     const sessionUser = req.session?.user;
     
+    // Validação de Sessão
     if (!sessionUser || !sessionUser.password) {
         return res.status(401).json({ success: false, error: 'Sessão expirada. Faça login novamente.' });
     }
 
-    // 2. EXTRAÇÃO DAS CREDENCIAIS DO ANALISTA
     const adminName = sessionUser.displayName || sessionUser.username;
     const adminUser = sessionUser.username;
     const adminPass = sessionUser.password;
@@ -164,61 +164,53 @@ exports.createUser = async (req, res) => {
     console.log(`\n🆕 Controller: Solicitando criação de ${targetUserLogon} por ${adminName}...`);
 
     try {
-        // O usuário já existe?
+        // Verifica se já existe
         const userExists = await ldapService.checkUserExists(userData.logonName, adminUser, adminPass);
-        
         if (userExists) {
-            console.log(`⚠️ Criação negada. Logon '${userData.logonName}' já existe.`);
             return res.status(400).json({ 
                 success: false, 
                 error: `O logon "${userData.logonName}" já está registrado no Active Directory.` 
             });
         }
 
-        // PREPARAÇÃO DOS DADOS (OU e Grupos)
+        // Prepara Grupos
         const targetOU = userData.targetOU;
-        
-        let finalGroups = [
-            'CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'
-        ];
-
+        let finalGroups = ['CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'];
         if (userData.targetGroups && Array.isArray(userData.targetGroups)) {
             finalGroups = finalGroups.concat(userData.targetGroups);
         }
-        // Remove duplicados
         finalGroups = [...new Set(finalGroups)];
 
-        // Cria o usuário (Passando as credenciais do analista)
+        // CRIA NO AD (LDAP + PowerShell)
         await ldapService.createNewUserFullProcess(userData, targetOU, finalGroups, adminUser, adminPass);
         
+        // CHAMA O COLLECTOR 
         try {
-            await loggerService.logAction(
-                'CADASTRO USUÁRIO', 
-                adminName,          
-                targetUserLogon,    
-                'SUCESSO',         
-                'Cadastrado Usuário'
-            );
-        } catch (logErr) {
-            console.error('⚠️ Falha ao registrar log (Sucesso):', logErr);
+            console.log('🔄 Atualizando base local (MySQL) com o novo usuário...');
+            
+            // Chama a função SEGURA que criamos agora
+            if (collector.syncUsers) {
+                await collector.syncUsers(); 
+            } else {
+                console.warn('⚠️ Função collector.syncUsers não encontrada. Verifique o exports do collector.js');
+            }
+
+        } catch (syncErr) {
+            console.error('⚠️ Aviso: Usuário criado no AD, mas falha ao sincronizar painel:', syncErr.message);
         }
 
-        res.status(201).json({ success: true, message: 'Usuário cadastrado com sucesso no AD!' });
+        // 5. Log de Auditoria
+        try {
+            await loggerService.logAction('CADASTRO USUÁRIO', adminName, targetUserLogon, 'SUCESSO', 'Cadastrado Usuário');
+        } catch (logErr) { console.error(logErr); }
+
+        res.status(201).json({ success: true, message: 'Usuário cadastrado com sucesso no AD e painel atualizado!' });
 
     } catch (error) {
         console.error('❌ Erro ao criar usuário:', error);
-        
         try {
-             await loggerService.logAction(
-                'CADASTRO USUÁRIO',
-                adminName,
-                targetUserLogon,
-                'ERRO',
-                error.message
-            );
-        } catch (logErr) {
-            console.error('⚠️ Falha ao registrar log (Erro):', logErr);
-        }
+             await loggerService.logAction('CADASTRO USUÁRIO', adminName, targetUserLogon, 'ERRO', error.message);
+        } catch (logErr) {}
         
         res.status(500).json({ success: false, error: error.message });
     }
