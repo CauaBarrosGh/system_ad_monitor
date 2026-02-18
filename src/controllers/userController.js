@@ -122,7 +122,7 @@ exports.deleteDisabledUser = async (req, res) => {
         await pool.execute('DELETE FROM disabled_users_ad WHERE username = ?', [username]);
 
         await loggerService.logAction(
-            'EXCLUSÃO',   
+            'EXCLUSÃO USUÁRIO',   
             adminName,              
             username,               
             'SUCESSO',              
@@ -135,7 +135,7 @@ exports.deleteDisabledUser = async (req, res) => {
         console.error('⚠️ Erro ao excluir usuário: ', error);
 
         await loggerService.logAction(
-            'EXCLUSÃO',
+            'EXCLUSÃO USUÁRIO',
             adminName,
             username,
             'ERRO',
