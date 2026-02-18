@@ -88,9 +88,10 @@ function renderAuditTable(list) {
 
     // Badge de Ação
     let actionClass = "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700";
-    if (log.action === 'EXCLUSÃO' || log.action === 'EXCLUSÃO COMPUTADOR') actionClass = "bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900";
+    if (log.action === 'EXCLUSÃO USUÁRIO' || log.action === 'EXCLUSÃO COMPUTADOR') actionClass = "bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900";
     if (log.action === 'DESLIGAMENTO') actionClass = "bg-orange-100 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 border-orange-100 dark:border-orange-900";
     if (log.action === 'DESBLOQUEIO') actionClass = "bg-yellow-100 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-100 dark:border-yellow-900";
+    if (log.action === 'CADASTRO USUÁRIO') actionClass = "bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-100 dark:border-green-900";
 
     const actionBadge = `<span class="${actionClass} text-[10px] font-bold px-2 py-0.5 rounded border border-opacity-50">${log.action}</span>`;
 
