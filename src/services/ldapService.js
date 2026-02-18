@@ -514,20 +514,23 @@ exports.deleteComputer = (computerName, adminUser, adminPass) => {
     });
 };
 
-// Adicione junto das suas outras funções no ldapService.js
-
 // --- VERIFICAR SE USUÁRIO EXISTE ---
-exports.checkUserExists = (username) => {
+exports.checkUserExists = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         const client = ldap.createClient({
             url: process.env.AD_URL,
             tlsOptions: { rejectUnauthorized: false }
         });
 
-        client.bind(process.env.AD_USER, process.env.AD_PASSWORD, (bindErr) => {
+        // LÓGICA DE CREDENCIAL DINÂMICA
+        const bindUser = adminUser || process.env.AD_USER;
+        const bindPass = adminPass || process.env.AD_PASSWORD;
+
+        client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
-                return reject(new Error('Erro de autenticação no AD.'));
+                // Retorna erro específico para sabermos se foi senha errada do admin
+                return reject(new Error(`Erro de autenticação ao consultar AD: ${bindErr.message}`));
             }
 
             const searchOptions = {
@@ -543,16 +546,11 @@ exports.checkUserExists = (username) => {
                 }
 
                 let exists = false;
-
-                searchRes.on('searchEntry', () => {
-                    exists = true;
-                });
-
+                searchRes.on('searchEntry', () => { exists = true; });
                 searchRes.on('end', () => {
                     client.unbind();
                     resolve(exists);
                 });
-
                 searchRes.on('error', (err) => {
                     client.unbind();
                     reject(err);
@@ -562,23 +560,25 @@ exports.checkUserExists = (username) => {
     });
 };
 
-// --- CRIAR NOVO USUÁRIO (CRIAÇÃO 100% POWERSHELL + GRUPOS LDAP) ---
-exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
+// --- CRIAR NOVO USUÁRIO ---
+exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser, adminPass) => {
     return new Promise(async (resolve, reject) => {
         const client = ldap.createClient({
             url: process.env.AD_URL,
             tlsOptions: { rejectUnauthorized: false }
         });
 
-        const bindUser = process.env.AD_USER;
-        const bindPass = process.env.AD_PASSWORD;
+        // LÓGICA DE CREDENCIAL DINÂMICA (Aplica tanto no LDAP quanto no PowerShell)
+        const bindUser = adminUser || process.env.AD_USER;
+        const bindPass = adminPass || process.env.AD_PASSWORD;
 
         const rdnName = `${userData.firstName} ${userData.lastName}`.replace(/([\\,=+<>#;"])/g, '\\$1');
         const newUserDN = `CN=${rdnName},${targetOU}`;
         const isExterno = userData.contractType === 'PJ' ? 'TRUE' : 'FALSE';
 
         try {
-            console.log(`⏳ [SERVICE] Criando conta e injetando atributos via PowerShell (Bypass de Acentos)...`);
+            console.log(`⏳ [SERVICE] Criando conta via PowerShell usando credencial: ${bindUser}`);
+
             const pwdLastSetCommand = userData.forcePwdChange ? '$userEntry.put("pwdLastSet", 0)' : '';
             const descCmd = userData.jobTitle ? `$newUser.Put("description", "${userData.jobTitle.replace(/"/g, '""')}")` : '';
             const deptCmd = userData.seniority ? `$newUser.Put("departmentNumber", "${userData.seniority.replace(/"/g, '""')}")` : '';
@@ -588,13 +588,15 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
                 try {
                     $ouDN = "LDAP://${targetOU.replace(/"/g, '""')}"
                     $userDN = "LDAP://${newUserDN.replace(/"/g, '""')}"
+                    
+                    # Usa a credencial dinâmica aqui!
                     $bindU = "${bindUser.replace(/"/g, '""')}"
                     $bindP = "${bindPass.replace(/"/g, '""')}"
 
-                    # 1. Conecta na OU exata (Isso resolve o bug de OUs com "ç" e "õ")
+                    # 1. Conecta na OU
                     $ouEntry = New-Object System.DirectoryServices.DirectoryEntry($ouDN, $bindU, $bindP)
 
-                    # 2. Cria a casca do usuário com todos os atributos já preenchidos
+                    # 2. Cria a casca do usuário
                     $newUser = $ouEntry.Children.Add("CN=${rdnName.replace(/"/g, '""')}", "user")
                     $newUser.Put("sAMAccountName", "${userData.logonName}")
                     $newUser.Put("userPrincipalName", "${userData.logonName}@soc.com.br")
@@ -607,7 +609,7 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
                     $newUser.Put("colaboradorexterno", "${isExterno}")
                     $newUser.SetInfo()
 
-                    # 3. Reconecta especificamente na conta nova e injeta a Senha / Ativação
+                    # 3. Reconecta e injeta a Senha
                     $userEntry = New-Object System.DirectoryServices.DirectoryEntry($userDN, $bindU, $bindP)
                     $userEntry.SetPassword('${userData.password.replace(/'/g, "''")}')
                     $userEntry.put("userAccountControl", 512)
@@ -626,8 +628,9 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
             if (!stdout.includes('PS_SUCCESS') && stderr && stderr.trim() !== '') {
                 throw new Error(`Falha no Active Directory (PowerShell): ${stderr}`);
             }
-            console.log('✅ [SUCESSO] Conta criada, atributos preenchidos e ativada pelo sistema nativo.');
+            console.log('✅ [SUCESSO] Conta criada e ativada.');
 
+            // BIND NO LDAP PARA OS GRUPOS (Usando credencial dinâmica)
             await new Promise((resolveBind, rejectBind) => {
                 client.bind(bindUser, bindPass, (err) => {
                     if (err) rejectBind(new Error('Erro de autenticação no AD para inserção nos grupos.'));
@@ -635,6 +638,7 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
                 });
             });
 
+            // ADICIONAR AOS GRUPOS
             for (const groupDN of targetGroups) {
                 await new Promise((resolveGroup) => {
                     const cnMatch = groupDN.match(/^CN=([^,]+)/);
@@ -649,7 +653,6 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
 
                     client.search(process.env.AD_BASE, groupSearchOptions, (searchErr, searchRes) => {
                         if (searchErr) return resolveGroup();
-
                         let groupGUID = null;
                         let groupDNConstructor = null;
 
@@ -669,7 +672,6 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
 
                         searchRes.on('end', () => {
                             if (!groupGUID) return resolveGroup();
-
                             const magicString = `<GUID=${groupGUID}>`;
                             let targetGroupDN;
                             if (groupDNConstructor) {
@@ -698,7 +700,6 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups) => {
                                 resolveGroup();
                             });
                         });
-
                         searchRes.on('error', () => resolveGroup());
                     });
                 });

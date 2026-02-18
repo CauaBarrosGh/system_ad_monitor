@@ -147,26 +147,35 @@ exports.deleteDisabledUser = async (req, res) => {
 };
 
 exports.createUser = async (req, res) => {
-    let adminName = 'Sistema';
-    let targetUser = 'Desconhecido';
+    const sessionUser = req.session?.user;
+    
+    if (!sessionUser || !sessionUser.password) {
+        return res.status(401).json({ success: false, error: 'Sessão expirada. Faça login novamente.' });
+    }
+
+    // 2. EXTRAÇÃO DAS CREDENCIAIS DO ANALISTA
+    const adminName = sessionUser.displayName || sessionUser.username;
+    const adminUser = sessionUser.username;
+    const adminPass = sessionUser.password;
+
+    const userData = req.body;
+    const targetUserLogon = userData.logonName || 'Desconhecido';
+
+    console.log(`\n🆕 Controller: Solicitando criação de ${targetUserLogon} por ${adminName}...`);
 
     try {
-        adminName = req.session?.user?.displayName || req.user?.displayName || req.user?.username || 'Sistema';
+        // O usuário já existe?
+        const userExists = await ldapService.checkUserExists(userData.logonName, adminUser, adminPass);
         
-        const userData = req.body;
-        targetUser = userData.logonName || 'Desconhecido';
-
-        console.log(`\n[CONTROLLER] Requisição para criar usuário: ${targetUser} (Por: ${adminName})`);
-
-        const userExists = await ldapService.checkUserExists(userData.logonName);
         if (userExists) {
-            console.log(`⚠️ [CONTROLLER] Criação negada. Logon '${userData.logonName}' já está em uso.`);
+            console.log(`⚠️ Criação negada. Logon '${userData.logonName}' já existe.`);
             return res.status(400).json({ 
                 success: false, 
                 error: `O logon "${userData.logonName}" já está registrado no Active Directory.` 
             });
         }
 
+        // PREPARAÇÃO DOS DADOS (OU e Grupos)
         const targetOU = userData.targetOU;
         
         let finalGroups = [
@@ -176,41 +185,41 @@ exports.createUser = async (req, res) => {
         if (userData.targetGroups && Array.isArray(userData.targetGroups)) {
             finalGroups = finalGroups.concat(userData.targetGroups);
         }
-
+        // Remove duplicados
         finalGroups = [...new Set(finalGroups)];
 
-        // Executa a criação no Service
-        await ldapService.createNewUserFullProcess(userData, targetOU, finalGroups);
+        // Cria o usuário (Passando as credenciais do analista)
+        await ldapService.createNewUserFullProcess(userData, targetOU, finalGroups, adminUser, adminPass);
         
-        // 3. REGISTRA O SUCESSO
         try {
             await loggerService.logAction(
-                'CADASTRO USUÁRIO',
-                adminName,
-                targetUser,
-                'SUCESSO',
-                'Cadastrado novo usuário'
+                'CADASTRO USUÁRIO', 
+                adminName,          
+                targetUserLogon,    
+                'SUCESSO',         
+                'Cadastrado Usuário'
             );
         } catch (logErr) {
-            console.error('⚠️ [AVISO] Falha ao registrar log de auditoria (Sucesso):', logErr);
+            console.error('⚠️ Falha ao registrar log (Sucesso):', logErr);
         }
 
-        res.status(201).json({ success: true, message: 'Usuário provisionado com sucesso no AD!' });
+        res.status(201).json({ success: true, message: 'Usuário cadastrado com sucesso no AD!' });
 
     } catch (error) {
-        console.error('[CONTROLLER ERRO]', error);
+        console.error('❌ Erro ao criar usuário:', error);
         
         try {
              await loggerService.logAction(
                 'CADASTRO USUÁRIO',
                 adminName,
-                targetUser,
+                targetUserLogon,
                 'ERRO',
                 error.message
             );
         } catch (logErr) {
-            console.error('⚠️ [AVISO] Falha ao registrar log de auditoria (Erro):', logErr);
+            console.error('⚠️ Falha ao registrar log (Erro):', logErr);
         }
+        
         res.status(500).json({ success: false, error: error.message });
     }
 };
