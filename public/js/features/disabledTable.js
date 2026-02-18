@@ -146,8 +146,10 @@ export async function confirmDeleteDisabled(username) {
     html: `Tem certeza que deseja apagar <b>${username}</b>?<br><span class="text-xs text-red-500">Essa ação remove do AD e não pode ser desfeita!</span>`,
     icon: 'warning',
     showCancelButton: true,
-    confirmButtonColor: '#ef4444', // Vermelho
-    cancelButtonColor: '#64748b', // Cinza
+    background: '#1e293b',
+    color: '#fff',
+    confirmButtonColor: '#ef4444', 
+    cancelButtonColor: '#64748b',
     confirmButtonText: 'Sim, excluir!',
     cancelButtonText: 'Cancelar',
     heightAuto: false,
@@ -161,6 +163,8 @@ export async function confirmDeleteDisabled(username) {
     title: 'Apagando...',
     text: 'Comunicando com o Active Directory',
     didOpen: () => Swal.showLoading(),
+    background: '#1e293b',
+    color: '#fff',
     heightAuto: false,
     allowOutsideClick: false,
     scrollbarPadding: false
@@ -182,6 +186,8 @@ export async function confirmDeleteDisabled(username) {
         title: 'Excluído!',
         text: data.message,
         timer: 1500,
+        background: '#1e293b',
+        color: '#fff',
         showConfirmButton: false,
         heightAuto: false,
         scrollbarPadding: false
@@ -199,6 +205,8 @@ export async function confirmDeleteDisabled(username) {
       icon: 'error',
       title: 'Erro',
       text: error.message,
+      background: '#1e293b',
+      color: '#fff',
       heightAuto: false,
       scrollbarPadding: false
     });

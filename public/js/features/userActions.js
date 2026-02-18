@@ -1,44 +1,75 @@
 import { closeModal } from "../ui/modal.js";
 import { refreshAfterUserAction } from "./sectionLoader.js";
 
+// DESBLOQUEIO
 export async function unlockUserAccount(username) {
-  if (!confirm(`Tem certeza que deseja desbloquear o usuário ${username}?`)) return;
+  const result = await Swal.fire({
+    title: 'DESBLOQUEAR CONTA',
+    html: `Tem certeza que deseja desbloquear o usuário <b>${username}</b>?`,
+    icon: 'question',
+    background: '#1e293b',
+    color: '#fff',
+    showCancelButton: true,
+    confirmButtonColor: '#3b82f6',
+    cancelButtonColor: '#64748b', 
+    confirmButtonText: 'Sim, desbloquear',
+    cancelButtonText: 'Cancelar',
+    heightAuto: false,
+    scrollbarPadding: false
+  });
+
+  if (!result.isConfirmed) return;
+
+  // Loading
+  Swal.fire({
+    title: 'Processando...',
+    text: 'Comunicando com o Active Directory.',
+    background: '#1e293b',
+    color: '#fff',
+    allowOutsideClick: false,
+    heightAuto: false,
+    scrollbarPadding: false,
+    didOpen: () => Swal.showLoading()
+  });
 
   try {
-    const btn = document.querySelector('#modalFooter button');
-    const originalHtml = btn?.innerHTML;
-
-    if (btn) {
-      btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Processando...`;
-      btn.disabled = true;
-      lucide.createIcons();
-    }
-
     const res = await fetch(`/api/users/${username}/unlock`, { method: 'POST' });
 
     if (res.ok) {
-      alert('✅ Usuário desbloqueado com sucesso no Active Directory!');
+      // Sucesso
+      await Swal.fire({
+        icon: 'success',
+        title: 'Desbloqueado!',
+        text: 'O usuário agora pode fazer login novamente.',
+        background: '#1e293b',
+        color: '#fff',
+        confirmButtonColor: '#10b981',
+        heightAuto: false,
+        scrollbarPadding: false
+      });
+
       closeModal();
       await refreshAfterUserAction();
     } else {
       const err = await res.json();
-      alert('❌ Erro: ' + (err.error || 'Falha ao desbloquear'));
+      throw new Error(err.error || 'Falha ao desbloquear');
     }
 
-    if (btn && originalHtml) btn.innerHTML = originalHtml;
-  } catch (e) {
-    alert('Erro de conexão com o servidor.');
-    console.error(e);
-  } finally {
-    const btn = document.querySelector('#modalFooter button');
-    if (btn) {
-      btn.innerHTML = `<i data-lucide="unlock" class="w-4 h-4"></i> Desbloquear Conta`;
-      btn.disabled = false;
-      lucide.createIcons();
-    }
+  } catch (error) {
+    console.error(error);
+    Swal.fire({
+      icon: 'error',
+      title: 'Erro ao Desbloquear',
+      text: error.message || 'Erro de conexão com o servidor.',
+      background: '#1e293b',
+      color: '#fff',
+      heightAuto: false,
+      scrollbarPadding: false
+    });
   }
 }
 
+// DESLIGAMENTO 
 export async function confirmDisable(username, displayName) {
   const result = await Swal.fire({
     title: 'DESLIGAMENTO IMEDIATO',
@@ -113,4 +144,3 @@ export async function confirmDisable(username, displayName) {
     });
   }
 }
-``

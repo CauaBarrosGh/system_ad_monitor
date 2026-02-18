@@ -121,6 +121,8 @@ export async function confirmDeleteComputer(computerName) {
     html: `Tem certeza que deseja apagar <b>${computerName}</b> do AD?<br><span class="text-xs text-red-500">Essa ação é irreversível!</span>`,
     icon: 'warning',
     showCancelButton: true,
+    background: '#1e293b',
+    color: '#fff',
     confirmButtonColor: '#ef4444',
     cancelButtonColor: '#64748b',
     confirmButtonText: 'Sim, excluir!',
