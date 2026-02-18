@@ -1,0 +1,70 @@
+<!-- [SIDEBAR] Navegação principal -->
+    <aside id="sidebar"
+        class="fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-white flex flex-col shadow-2xl transition-transform duration-300 transform -translate-x-full lg:translate-x-0 lg:static lg:inset-auto border-r border-slate-800">
+        <div class="h-16 flex items-center justify-center border-b border-slate-800 bg-slate-900 shadow-md">
+            <div class="flex items-center gap-2 font-bold text-xl tracking-wider text-blue-400">
+                <i data-lucide="shield-user" class="w-6 h-6"></i>
+                <span class="text-white">AD GUARD</span>
+            </div>
+        </div>
+
+        <!-- [SIDEBAR NAV] Abas: overview / details / inventory / security -->
+        <nav class="flex-1 px-3 py-6 space-y-2">
+            <button onclick="switchTab('overview')" id="btn-overview"
+                class="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 rounded-lg text-white shadow-lg transition-all hover:scale-[1.02]">
+                <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+                <span class="font-medium">Visão Geral</span>
+            </button>
+            <button onclick="switchTab('details')" id="btn-details"
+                class="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+                <i data-lucide="contact" class="w-5 h-5"></i>
+                <span class="font-medium">Diretório</span>
+            </button>
+            <button onclick="switchTab('inventory')" id="btn-inventory"
+                class="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+                <i data-lucide="monitor" class="w-5 h-5"></i>
+                <span class="font-medium">Inventário TI</span>
+            </button>
+            <button onclick="switchTab('register')" id="btn-register"
+                class="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+                <i data-lucide="user-plus" class="w-5 h-5"></i>
+                <span class="font-medium">Cadastrar Usuário</span>
+            </button>
+            <button onclick="switchTab('disabled')" id="btn-disabled"
+                class="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+                <i data-lucide="user-x" class="w-5 h-5"></i>
+                <span class="font-medium">Desativados</span>
+            </button>
+            <button onclick="switchTab('security')" id="btn-security"
+                class="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+                <i data-lucide="shield-alert" class="w-5 h-5"></i>
+                <span class="font-medium">Segurança</span>
+            </button>
+            <button id="btn-audit" onclick="switchTab('audit')"
+                class="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition-colors">
+                <i data-lucide="file-text"></i>
+                <span class="font-medium">Auditoria</span>
+            </button>
+        </nav>
+
+        <!--[PROFILE] Área do usuário logado(indicador) -->
+        <div class="mt-auto border-t border-slate-700/50 p-4 bg-slate-900/50">
+            <div class="flex items-center gap-3">
+                <div id="profile-initial"
+                    class="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shadow-lg ring-2 ring-slate-700 text-lg">
+                    ?
+                </div>
+                <div class="flex-1 min-w-0 overflow-hidden">
+                    <p id="profile-name" class="text-sm font-bold text-white truncate">Carregando...</p>
+                    <div class="flex items-center gap-1.5">
+                        <span class="relative flex h-2 w-2">
+                            <span
+                                class="ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        </span>
+                        <p class="text-[10px] text-slate-400 font-medium truncate uppercase tracking-wider">Online</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>

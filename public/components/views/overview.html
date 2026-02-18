@@ -1,0 +1,131 @@
+<!--
+    [VIEW: VISÃO GEARL]
+        - KPIs: kpi-total, kpi-ativos, kpi-inativos, kpi-ghosts
+        - Gráfico: canvas #myChart (Chart.js)
+        - Auditoria: tabela #user-table-body (JS preenche)
+        - Filtros: roleFilter, statusFilter, searchInput
+        - Ordenação: sortTable('campo')
+-->
+        
+<section id="view-overview" class="fade-in space-y-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div
+            class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-md transition">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Total De
+                        Usuários</p>
+                    <h3 class="text-3xl font-black text-slate-800 dark:text-slate-100 mt-1" id="kpi-total">
+                        --</h3>
+                </div>
+                <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-blue-600 dark:text-blue-400">
+                    <i data-lucide="database" class="w-6 h-6"></i>
+                </div>
+            </div>
+        </div>
+        <div
+            class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-md transition">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Ativos</p>
+                    <h3 class="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1" id="kpi-ativos">--
+                    </h3>
+                </div>
+                <div class="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-emerald-600 dark:text-emerald-400">
+                    <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                </div>
+            </div>
+        </div>
+        <div
+            class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-md transition">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Inativos</p>
+                    <h3 class="text-3xl font-black text-red-400 mt-1" id="kpi-inativos">--</h3>
+                </div>
+                <div class="p-3 bg-red-100 dark:bg-red-900/20 rounded-lg text-red-500 dark:text-red-400"><i
+                        data-lucide="ban" class="w-6 h-6"></i></div>
+            </div>
+        </div>
+        <div
+            class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-md transition">
+            <div class="flex justify-between items-center">
+                <div>
+                    <p class="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase">Risco > 90d
+                        Offline</p>
+                    <h3 class="text-3xl font-black text-orange-400 mt-1" id="kpi-ghosts">--</h3>
+                </div>
+                <div class="p-3 bg-orange-100 dark:bg-orange-900/20 rounded-lg text-orange-500 dark:text-orange-400">
+                    <i data-lucide="ghost" class="w-6 h-6"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[75vh] lg:h-[600px]">
+        <div
+            class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 flex flex-col h-full transition-colors">
+            <h3 class="text-lg font-bold text-gray-700 dark:text-slate-200 mb-2 flex items-center gap-2"><i
+                    data-lucide="pie-chart" class="w-5 h-5 text-blue-500"></i> Distribuição</h3>
+            <div class="relative flex-1 min-h-[300px] w-full"><canvas id="myChart"></canvas></div>
+        </div>
+
+        <div
+            class="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 lg:col-span-2 flex flex-col h-[75vh] lg:h-[600px] transition-colors">
+            <div class="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-4 gap-4 flex-shrink-0">
+                <h3 class="text-lg font-bold text-gray-700 dark:text-slate-200 flex items-center gap-2">
+                    <i data-lucide="list" class="w-5 h-5 text-blue-500"></i> Auditoria de Usuários
+                </h3>
+
+                <div class="flex flex-wrap gap-2 w-full xl:w-auto">
+                    <select id="roleFilter"
+                        class="flex-1 xl:flex-none px-3 py-1.5 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-xs text-slate-700 dark:text-slate-200 focus:outline-none">
+                        <option value="">Todos Times</option>
+                    </select>
+                    <select id="statusFilter"
+                        class="flex-1 xl:flex-none px-3 py-1.5 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg text-xs text-slate-700 dark:text-slate-200 focus:outline-none">
+                        <option value="">Todos Status</option>
+                        <option value="active">Ativos</option>
+                        <option value="inactive">Inativos</option>
+                    </select>
+                    <div class="relative w-full sm:w-40">
+                        <i data-lucide="search" class="absolute left-2.5 top-2 text-gray-400 w-3.5 h-3.5"></i>
+                        <input type="text" id="searchInput" placeholder="Buscar..."
+                            class="w-full pl-8 pr-3 py-1.5 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs text-slate-700 dark:text-slate-200 placeholder-gray-400">
+                    </div>
+                </div>
+            </div>
+
+            <div
+                class="overflow-hidden border border-gray-200 dark:border-slate-700 rounded-lg flex-1 flex flex-col min-h-0">
+                <div class="overflow-y-auto overflow-x-auto custom-scrollbar flex-1">
+                    <table class="w-full text-left text-sm text-gray-500 dark:text-slate-400">
+                        <thead
+                            class="bg-gray-50 dark:bg-slate-700 text-xs uppercase text-gray-700 dark:text-slate-200 font-bold sticky top-0 shadow-sm z-10">
+                            <tr>
+                                <th onclick="sortTable('display_name')"
+                                    class="px-6 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-600 group">
+                                    Usuário <i data-lucide="chevrons-up-down"
+                                        class="w-3 h-3 inline ml-1 opacity-50"></i></th>
+                                <th onclick="sortTable('role')"
+                                    class="px-6 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-600 group">
+                                    Time <i data-lucide="chevrons-up-down" class="w-3 h-3 inline ml-1 opacity-50"></i>
+                                </th>
+                                <th onclick="sortTable('last_logon')"
+                                    class="px-6 py-3 cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-600 group">
+                                    Último Acesso <i data-lucide="chevrons-up-down"
+                                        class="w-3 h-3 inline ml-1 opacity-50"></i></th>
+                                <th onclick="sortTable('is_enabled')"
+                                    class="px-6 py-3 text-center cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-600 group">
+                                    Status <i data-lucide="chevrons-up-down" class="w-3 h-3 inline ml-1 opacity-50"></i>
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="user-table-body"
+                            class="divide-y divide-gray-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
