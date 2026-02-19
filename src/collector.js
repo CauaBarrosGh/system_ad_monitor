@@ -24,7 +24,6 @@ const MYSQL_CONFIG = {
 // --- CONSTANTES ---
 const NOME_GRUPO_RAIZ = 'grpSegMain';
 const IGNORE_GROUPS = ['Domain Users', 'Usuarios do Dominio'];
-const MANUAL_GROUPS = ['Dev - SI','Dev - Agilidade - EPA','Adm - Serviços Gerais','Dev - Terceiros','Dev - Lideres',];
 const DISABLED_OU = 'OU=Desativados,OU=Usuarios,OU=SOC,DC=soc,DC=com,DC=br';
 
 // Globais
@@ -83,53 +82,19 @@ function detectTime(groups) {
 
 // --- LÓGICA DE NEGÓCIO: CÁLCULO DE RISCO (SOC) ---
 function calculateRisk(user) {
-    let score = 0;
-    let factors = [];
-    const now = new Date();
-
-    // 1. Senha Nunca Expira (Risco Crítico)
-    if (user.pwdNeverExpires) {
-        score += 40;
-        factors.push("Senha Nunca Expira");
-    }
-
-    // 2. Senha Antiga (> 180 dias)
+    let score = 0; let factors = []; const now = new Date();
+    if (user.pwdNeverExpires) { score += 40; factors.push("Senha Nunca Expira"); }
     if (user.pwdLastSet) {
         const daysPwd = Math.floor((now - user.pwdLastSet) / (1000 * 60 * 60 * 24));
-        if (daysPwd > 180 && !user.pwdNeverExpires) {
-            score += 30;
-            factors.push(`Senha Antiga (${daysPwd}d)`);
-        }
+        if (daysPwd > 180 && !user.pwdNeverExpires) { score += 30; factors.push(`Senha Antiga (${daysPwd}d)`); }
     }
-
-    // 3. Conta Fantasma (Ativo mas sem logon > 90 dias)
     if (user.isEnabled && user.lastLogon) {
         const daysLogon = Math.floor((now - user.lastLogon) / (1000 * 60 * 60 * 24));
-        if (daysLogon > 90) {
-            score += 25;
-            factors.push(`Fantasma (${daysLogon}d off)`);
-        }
+        if (daysLogon > 90) { score += 25; factors.push(`Fantasma (${daysLogon}d off)`); }
     }
-
-    // 4. Admin Count (VIP Target)
-    if (user.isAdmin) {
-        score += 15;
-        factors.push("Acesso Admin");
-    }
-
-    // 5. Erros de Senha Recentes
-    if (user.badPwdCount > 0) {
-        score += 10;
-        factors.push(`Erros de Senha (${user.badPwdCount})`);
-    }
-
-    // 6. Sem Gestor
-    if (!user.managerName) {
-        score += 5;
-        factors.push("Sem Gestor");
-    }
-
-    // Cap em 100
+    if (user.isAdmin) { score += 15; factors.push("Acesso Admin"); }
+    if (user.badPwdCount > 0) { score += 10; factors.push(`Erros de Senha (${user.badPwdCount})`); }
+    if (!user.managerName) { score += 5; factors.push("Sem Gestor"); }
     return { score: Math.min(score, 100), factors: JSON.stringify(factors) };
 }
 
@@ -179,8 +144,6 @@ async function crawlGroup(client, groupDN, parentGroupName) {
 async function buildDepartmentMap(client) {
     console.log(`🧩 Mapeando hierarquia de "${NOME_GRUPO_RAIZ}"...`);
     visitedGroups.clear(); userGroupMap.clear();
-
-    // Busca o DN do grupo raiz pelo sAMAccountName
     const opts = { filter: `(&(objectClass=group)(sAMAccountName=${NOME_GRUPO_RAIZ}))`, scope: 'sub', attributes: ['distinguishedName'] };
     let rootDN = null;
     await new Promise((resolve) => {
@@ -194,12 +157,11 @@ async function buildDepartmentMap(client) {
     console.log(`✅ Mapeamento concluído.`);
 }
 
+// --- FETCHERS COM LÓGICA DE EXCLUSÃO (LIMPEZA) ---
 
-// FETCH USERS (coleta usuários do grupo alvo do AD e grava no MySQL)
 async function fetchUsers(client, dbConnection) {
-
-    // (Manutenção) GRUPO PRINCIPAL DOS USERS
     const GRUPO_ALVO_DN = 'CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br';
+    const foundUsernames = []; // 🎯 Rastrear quem está no AD
 
     return new Promise((resolve, reject) => {
         const opts = {
@@ -217,7 +179,8 @@ async function fetchUsers(client, dbConnection) {
                 const username = cleanValue(getAttr(entry, 'sAMAccountName'));
                 if (!username) return;
 
-                // Coleta dos Dados
+                foundUsernames.push(username); // 🎯 Registra que o usuário existe
+
                 const displayName = cleanValue(getAttr(entry, 'displayName')) || username;
                 const mail = cleanValue(getAttr(entry, 'mail'));
                 const uac = parseInt(cleanValue(getAttr(entry, 'userAccountControl')) || 0);
@@ -233,32 +196,19 @@ async function fetchUsers(client, dbConnection) {
                 const badPwdCount = parseInt(cleanValue(getAttr(entry, 'badPwdCount')) || 0);
                 const seniority = cleanValue(getAttr(entry, 'departmentNumber')); 
 
-                // Grupos e Role
                 let rawGroups = getAttr(entry, 'memberOf');
-                let groups = [];
-                if (Array.isArray(rawGroups)) groups = rawGroups; else if (typeof rawGroups === 'string') groups = [rawGroups];
+                let groups = Array.isArray(rawGroups) ? rawGroups : (rawGroups ? [rawGroups] : []);
                 const userTeam = detectTime(groups);
 
-                // Departamento
                 let specificGroup = 'Geral';
                 if (userGroupMap.has(username)) {
                     const mappedGroups = userGroupMap.get(username);
                     const leaderGroup = mappedGroups.find(g => g.toLowerCase().includes('lider') || g.toLowerCase().includes('gest'));
                     specificGroup = leaderGroup || mappedGroups[mappedGroups.length - 1];
                 }
-                if (specificGroup === 'Geral' && groups.length > 0) {
-                    const userGroupNames = groups.map(dn => extractCN(dn));
-                    const manualMatch = userGroupNames.find(gn => MANUAL_GROUPS.includes(gn));
-                    if (manualMatch) specificGroup = manualMatch;
-                }
 
-                // Cálculo de Risco
-                const risk = calculateRisk({
-                    pwdNeverExpires, pwdLastSet, isEnabled, lastLogon: lastLogonDate, 
-                    isAdmin, badPwdCount, managerName
-                });
+                const risk = calculateRisk({ pwdNeverExpires, pwdLastSet, isEnabled, lastLogon: lastLogonDate, isAdmin, badPwdCount, managerName });
 
-                 // Persistência (UPSERT Insere ou atualiza por chave única)
                 try {
                     await dbConnection.execute(
                         `INSERT INTO users_ad (
@@ -267,7 +217,7 @@ async function fetchUsers(client, dbConnection) {
                             bad_pwd_count, is_admin, pwd_never_expires, risk_score, risk_factors
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON DUPLICATE KEY UPDATE 
-                            display_name=VALUES(display_name), email=VALUES(email), is_enabled=VALUES(is_enabled), 
+                            display_name=VALUES(display_name), job_title=VALUES(job_title), email=VALUES(email), is_enabled=VALUES(is_enabled), 
                             last_logon=VALUES(last_logon), role=VALUES(role), department=VALUES(department), 
                             seniority=VALUES(seniority), manager=VALUES(manager), pwd_last_set=VALUES(pwd_last_set),
                             bad_pwd_count=VALUES(bad_pwd_count), is_admin=VALUES(is_admin), 
@@ -279,16 +229,26 @@ async function fetchUsers(client, dbConnection) {
                     );
                 } catch (dbErr) { console.error(`Erro SQL (${username}):`, dbErr.message); }
             });
-            res.on('end', () => { console.log(`✅ [USUÁRIOS] Fim: ${count}`); resolve(); });
+
+            res.on('end', async () => {
+                // 🎯 LÓGICA DE EXCLUSÃO DEFINITIVA
+                if (foundUsernames.length > 0) {
+                    try {
+                        const [result] = await dbConnection.query('DELETE FROM users_ad WHERE username NOT IN (?)', [foundUsernames]);
+                        if (result.affectedRows > 0) console.log(`🧹 [LIMPEZA] Usuários removidos do DB por não estarem no AD: ${result.affectedRows}`);
+                    } catch (e) { console.error('❌ Erro na limpeza de usuários:', e.message); }
+                }
+                console.log(`✅ [USUÁRIOS] Fim: ${count}`);
+                resolve();
+            });
             res.on('error', (err) => reject(err));
         });
     });
 }
 
-
-// FETCH COMPUTERS (coleta computadores do AD e grava no MySQL)
 async function fetchComputers(client, dbConnection) {
     console.log('💻 [COMPUTADORES] Coletando...');
+    const foundHostnames = [];
     return new Promise((resolve, reject) => {
         const opts = { filter: '(&(objectClass=computer))', scope: 'sub', attributes: ['cn', 'operatingSystem', 'operatingSystemVersion', 'whenCreated', 'lastLogonTimestamp'], paged: true };
         client.search(AD_CONFIG.searchBase, opts, (err, res) => {
@@ -296,6 +256,7 @@ async function fetchComputers(client, dbConnection) {
             res.on('searchEntry', async (entry) => {
                 const hostname = cleanValue(getAttr(entry, 'cn'));
                 if (!hostname) return;
+                foundHostnames.push(hostname);
                 const osName = cleanValue(getAttr(entry, 'operatingSystem')) || 'Desconhecido';
                 const osVersion = cleanValue(getAttr(entry, 'operatingSystemVersion'));
                 const createdDate = parseGeneralizedTime(cleanValue(getAttr(entry, 'whenCreated')));
@@ -304,234 +265,124 @@ async function fetchComputers(client, dbConnection) {
                 if (lastLogonDate) { const n = new Date(); n.setDate(n.getDate() - 90); isActive = lastLogonDate > n; }
                 try {
                     await dbConnection.execute(
-                        `INSERT INTO computers_ad (hostname, os_name, os_version, created_at, last_logon, is_active) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE os_name=VALUES(os_name), last_logon=VALUES(last_logon), is_active=VALUES(is_active)`,
+                        `INSERT INTO computers_ad (hostname, os_name, os_version, created_at, last_logon, is_active) 
+                         VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE os_name=VALUES(os_name), last_logon=VALUES(last_logon), is_active=VALUES(is_active)`,
                         [hostname, osName, osVersion, createdDate, lastLogonDate, isActive]
                     );
                 } catch (e) {}
             });
-            res.on('end', () => resolve());
+            res.on('end', async () => {
+                if (foundHostnames.length > 0) {
+                    try {
+                        const [result] = await dbConnection.query('DELETE FROM computers_ad WHERE hostname NOT IN (?)', [foundHostnames]);
+                        if (result.affectedRows > 0) console.log(`🧹 [LIMPEZA] PCs removidos do DB: ${result.affectedRows}`);
+                    } catch (e) { console.error('Erro limpeza PCs:', e.message); }
+                }
+                resolve();
+            });
             res.on('error', reject);
         });
     });
 }
 
-// FETCH DISABLED USERS (coleta usuários da OU=Desativados e grava no MySQL)
 async function fetchDisabledUsers(client, dbConnection) {
-    console.log('🚫 [DESATIVADOS] Coletando da OU=Desativados...');
-
+    console.log('🚫 [DESATIVADOS] Coletando...');
+    const foundDisabled = [];
     return new Promise((resolve, reject) => {
         const opts = {
-            // Garante que são users e que estão desabilitados (bit 2 do UAC)
             filter: '(&(objectClass=user)(objectCategory=person)(userAccountControl:1.2.840.113556.1.4.803:=2))',
             scope: 'sub',
-            attributes: [
-                'sAMAccountName',
-                'displayName',
-                'description',     // "Desligado em dd/mm/yyyy"
-                'department',      // se existir no AD
-                'whenChanged'      // data da mudança no AD
-            ],
+            attributes: ['sAMAccountName', 'displayName', 'description', 'department', 'whenChanged'],
             paged: true
         };
-
         client.search(DISABLED_OU, opts, (err, res) => {
             if (err) return reject(err);
-
             let count = 0;
-
             res.on('searchEntry', async (entry) => {
                 count++;
-
                 const username = cleanValue(getAttr(entry, 'sAMAccountName'));
                 if (!username) return;
-
+                foundDisabled.push(username);
                 const displayName = cleanValue(getAttr(entry, 'displayName')) || username;
                 const description = cleanValue(getAttr(entry, 'description')) || null;
-
-                // departamento (se AD tiver esse atributo)
                 const department = cleanValue(getAttr(entry, 'department')) || null;
-
-                // whenChanged vem em GeneralizedTime (ex: 20231031120000.0Z)
                 const whenChanged = parseGeneralizedTime(cleanValue(getAttr(entry, 'whenChanged')));
-
                 try {
                     await dbConnection.execute(
-                        `INSERT INTO disabled_users_ad (
-                            username, display_name, description, department, when_changed
-                        ) VALUES (?, ?, ?, ?, ?)
-                        ON DUPLICATE KEY UPDATE
-                            display_name = VALUES(display_name),
-                            description  = VALUES(description),
-                            department   = VALUES(department),
-                            when_changed = VALUES(when_changed)`,
+                        `INSERT INTO disabled_users_ad (username, display_name, description, department, when_changed) 
+                         VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), description=VALUES(description), when_changed=VALUES(when_changed)`,
                         [username, displayName, description, department, whenChanged]
                     );
-                } catch (dbErr) {
-                    console.error(`❌ [DESATIVADOS] Erro SQL (${username}):`, dbErr.message);
-                }
+                } catch (e) {}
             });
-
-            res.on('end', () => {
+            res.on('end', async () => {
+                if (foundDisabled.length > 0) {
+                    try {
+                        const [result] = await dbConnection.query('DELETE FROM disabled_users_ad WHERE username NOT IN (?)', [foundDisabled]);
+                        if (result.affectedRows > 0) console.log(`🧹 [LIMPEZA] Desativados removidos: ${result.affectedRows}`);
+                    } catch (e) {}
+                }
                 console.log(`✅ [DESATIVADOS] Fim: ${count}`);
                 resolve();
             });
-
             res.on('error', reject);
         });
     });
 }
 
 // MAIN: orquestra execução
-// - Conecta MySQL
-// - Faz bind no AD
-// - Executa: buildDepartmentMap -> fetchUsers -> fetchComputers
-// - Fecha conexões (unbind/end)
 async function main() {
-    console.log('--- 🛡️ INICIANDO COLETOR SOC (RISK SCORE ATIVO) ---');
-
-    // 1. DETECTAR ARGUMENTOS
+    console.log('--- 🛡️ INICIANDO COLETOR SOC ---');
     const args = process.argv.slice(2);
-    
-    // Se args estiver vazio, roda tudo. Se tiver flag, roda só o pedido.
     const shouldRunComputers = args.includes('--computers') || args.length === 0;
     const shouldRunUsers = args.includes('--users') || args.length === 0;
 
-    console.log(`📋 Modo: ${args.length === 0 ? 'COMPLETO' : args.join(', ')}`);
-
     let dbConnection;
-    try { 
-        dbConnection = await mysql.createConnection(MYSQL_CONFIG); 
-    } catch (e) { 
-        console.error('❌ Erro Banco:', e.message);
-        if (require.main === module) process.exit(1);
-        throw e;
-    }
+    try { dbConnection = await mysql.createConnection(MYSQL_CONFIG); } catch (e) { process.exit(1); }
 
     const client = ldap.createClient({ url: AD_CONFIG.url });
-
     return new Promise((resolve, reject) => {
         client.bind(AD_CONFIG.bindDN, AD_CONFIG.bindCredentials, async (err) => {
-            if (err) { 
-                console.error('❌ Erro Login AD:', err); 
-                dbConnection.end(); 
-                if (require.main === module) process.exit(1);
-                return reject(err); 
-            }
-
+            if (err) { dbConnection.end(); return reject(err); }
             try {
-                // 2. EXECUÇÃO CONDICIONAL
-                
-                // --- BLOCO DE USUÁRIOS ---
                 if (shouldRunUsers) {
-                    console.log('\n👥 Iniciando fluxo de USUÁRIOS...');
                     await buildDepartmentMap(client); 
                     await fetchUsers(client, dbConnection);
                     await fetchDisabledUsers(client, dbConnection);
                 }
-
-                // --- BLOCO DE COMPUTADORES ---
-                if (shouldRunComputers) {
-                    console.log('\n💻 Iniciando fluxo de COMPUTADORES...');
-                    await fetchComputers(client, dbConnection);
-                }
-
+                if (shouldRunComputers) await fetchComputers(client, dbConnection);
                 console.log('\n✨ DADOS SINCRONIZADOS COM SUCESSO.');
                 resolve();
-
-            } catch (execErr) { 
-                console.error('❌ Erro durante execução:', execErr); 
-                if (require.main === module) process.exit(1);
-                reject(execErr);
-
-            } finally { 
-                client.unbind(); 
-                await dbConnection.end(); 
-                if (require.main === module) process.exit(0);
-            }
+            } catch (execErr) { reject(execErr); } 
+            finally { client.unbind(); await dbConnection.end(); }
         });
     });
 }
 
-// --- FUNÇÃO EXCLUSIVA PARA A API (Apenas atualiza os Desativados) ---
+// EXPORTS PARA API
 async function runJustDisabledUsers() {
-    console.log('🔄 [API] Coletor invocado para sincronizar usuários desativados...');
-    let dbConnection;
-    try { 
-        dbConnection = await mysql.createConnection(MYSQL_CONFIG); 
-    } catch (e) { 
-        console.error('❌ [API] Erro Banco:', e.message);
-        throw e;
-    }
-
+    let dbConnection = await mysql.createConnection(MYSQL_CONFIG);
     const client = ldap.createClient({ url: AD_CONFIG.url });
-
     return new Promise((resolve, reject) => {
         client.bind(AD_CONFIG.bindDN, AD_CONFIG.bindCredentials, async (err) => {
-            if (err) { 
-                dbConnection.end(); 
-                return reject(err); 
-            }
-            try {
-                await fetchDisabledUsers(client, dbConnection);
-                resolve();
-            } catch (execErr) { 
-                reject(execErr);
-            } finally { 
-                client.unbind(); 
-                await dbConnection.end(); 
-            }
+            if (err) { dbConnection.end(); return reject(err); }
+            try { await fetchDisabledUsers(client, dbConnection); resolve(); } 
+            catch (e) { reject(e); } finally { client.unbind(); await dbConnection.end(); }
         });
     });
 }
 
-// Criação de Usuário
 async function syncUsers() {
-    console.log('🔄 [API] Coletor invocado para sincronizar usuários ATIVOS...');
-    let dbConnection;
-    try { 
-        dbConnection = await mysql.createConnection(MYSQL_CONFIG); 
-    } catch (e) { 
-        console.error('❌ [API] Erro Banco:', e.message);
-        throw e;
-    }
-
+    let dbConnection = await mysql.createConnection(MYSQL_CONFIG);
     const client = ldap.createClient({ url: AD_CONFIG.url });
-
     return new Promise((resolve, reject) => {
         client.bind(AD_CONFIG.bindDN, AD_CONFIG.bindCredentials, async (err) => {
-            if (err) { 
-                dbConnection.end(); 
-                return reject(err); 
-            }
-            try {
-                // Precisamos mapear os departamentos/líderes primeiro
-                await buildDepartmentMap(client);
-                // Agora buscamos os usuários e atualizamos o banco
-                await fetchUsers(client, dbConnection);
-                
-                console.log('✅ [API] Sincronização de usuários concluída.');
-                resolve();
-            } catch (execErr) { 
-                console.error('❌ [API] Erro no syncUsers:', execErr);
-                reject(execErr);
-            } finally { 
-                client.unbind(); 
-                await dbConnection.end(); 
-            }
+            if (err) { dbConnection.end(); return reject(err); }
+            try { await buildDepartmentMap(client); await fetchUsers(client, dbConnection); resolve(); } 
+            catch (e) { reject(e); } finally { client.unbind(); await dbConnection.end(); }
         });
     });
 }
 
-// --- CONTROLE DE EXECUÇÃO ---
-// Se o arquivo foi chamado diretamente pelo terminal (node collector.js)
-if (require.main === module) {
-    main();
-} 
-// Se o arquivo foi importado pela API
-else {
-    module.exports = {
-        main,
-        runJustDisabledUsers,
-        syncUsers 
-    };
-}
+if (require.main === module) main();
+else module.exports = { main, runJustDisabledUsers, syncUsers };

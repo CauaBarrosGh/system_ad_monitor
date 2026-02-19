@@ -45,4 +45,8 @@ router.post('/system/sync', systemController.runCollector);
 // Criar usuario
 router.post('/api/users', requireAuth, userController.createUser);
 
+// --- Novas Rotas de Edição ---
+router.get('/api/users/:username/details', requireAuth, userController.getUserData);
+router.put('/api/users/:username', requireAuth, userController.editUser);
+
 module.exports = router;

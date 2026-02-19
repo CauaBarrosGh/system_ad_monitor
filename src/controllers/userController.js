@@ -215,3 +215,41 @@ exports.createUser = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+// Função para buscar os dados que vão preencher o modal de edição
+exports.getUserData = async (req, res) => {
+    try {
+        const { username } = req.params;
+        const sessionUser = req.session?.user;
+
+        if (!sessionUser || !sessionUser.password) {
+            return res.status(401).json({ error: 'Sessão expirada.' });
+        }
+        const details = await ldapService.getUserDetails(username, sessionUser.username, sessionUser.password);
+
+        res.json({ details});
+    } catch (error) {
+        console.error('Erro ao buscar dados para o modal:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.editUser = async (req, res) => {
+    const { username } = req.params;
+    const { username: adminU, password: adminP } = req.session.user;
+    const sessionUser = req.session?.user;
+    const adminName = sessionUser.displayName;
+
+    try {
+        await ldapService.updateUserFull(username, req.body, adminU, adminP);
+        
+        await collector.syncUsers(); 
+        try {
+            await loggerService.logAction('EDITADO USUÁRIO', adminName, username, 'SUCESSO', 'Editado atributos');
+        } catch (logErr) { console.error(logErr); }
+
+        res.json({ success: true, message: 'AD e MySQL sincronizados!' });
+    } catch (error) {
+        await loggerService.logAction('EDITADO USUÁRIO', adminName, username, 'ERRO', error.message);
+        res.status(500).json({ error: error.message });
+    }
+};

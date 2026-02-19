@@ -716,3 +716,214 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
         }
     });
 };
+
+// --- FUNÇÃO DE SINCRONIZAR GRUPOS (Lógica de GUID do Desligamento) ---
+const syncGroups = async (client, userDNForGroups, currentGroups, targetGroups) => {
+    const toAdd = targetGroups.filter(g => !currentGroups.includes(g));
+    const toRemove = currentGroups.filter(g => 
+        !targetGroups.includes(g) && 
+        !g.toLowerCase().includes('domain users') && 
+        !g.toLowerCase().includes('usuários do domínio')
+    );
+
+    // 1. REMOVER (Igual ao seu Disable)
+    for (const groupDN of toRemove) {
+        await new Promise((resolveGroup) => {
+            const cnMatch = groupDN.match(/^CN=([^,]+)/);
+            if (!cnMatch) return resolveGroup();
+            
+            const groupCN = cnMatch[1];
+            const opts = {
+                filter: `(&(objectClass=group)(cn=${groupCN}))`,
+                scope: 'sub',
+                attributes: ['objectGUID']
+            };
+
+            client.search(process.env.AD_BASE, opts, (searchErr, searchRes) => {
+                if (searchErr) return resolveGroup();
+                let groupGUID = null;
+                let GroupConstructor = null;
+
+                searchRes.on('searchEntry', (entry) => {
+                    if (entry.objectName && entry.objectName.constructor) GroupConstructor = entry.objectName.constructor;
+                    const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
+                    groupGUID = guidAttr.buffers ? guidAttr.buffers[0].toString('hex') : Buffer.from(guidAttr.values[0], 'binary').toString('hex');
+                });
+
+                searchRes.on('end', () => {
+                    if (!groupGUID || !GroupConstructor) return resolveGroup();
+                    
+                    const magicGroupDN = new GroupConstructor();
+                    magicGroupDN.toString = () => `<GUID=${groupGUID}>`;
+                    magicGroupDN.format = () => `<GUID=${groupGUID}>`;
+
+                    const change = new ldap.Change({
+                        operation: 'delete',
+                        modification: { type: 'member', values: [userDNForGroups] } // 🎯 String crua do AD
+                    });
+
+                    client.modify(magicGroupDN, change, (modErr) => {
+                        if (!modErr) console.log(`🗑️ Removido do grupo via GUID: ${groupCN}`);
+                        resolveGroup();
+                    });
+                });
+            });
+        });
+    }
+
+    // 2. ADICIONAR (Mesma lógica segura de GUID)
+    for (const groupDN of toAdd) {
+        await new Promise((resolveAdd) => {
+            const cnMatch = groupDN.match(/^CN=([^,]+)/);
+            if (!cnMatch) return resolveAdd();
+
+            client.search(process.env.AD_BASE, { filter: `(&(objectClass=group)(cn=${cnMatch[1]}))`, scope: 'sub', attributes: ['objectGUID'] }, (err, res) => {
+                let gGUID = null;
+                let GConst = null;
+                res.on('searchEntry', e => {
+                    GConst = e.objectName.constructor;
+                    const ga = e.attributes.find(a => a.type.toLowerCase() === 'objectguid');
+                    gGUID = ga.buffers ? ga.buffers[0].toString('hex') : Buffer.from(ga.values[0], 'binary').toString('hex');
+                });
+                res.on('end', () => {
+                    if (!gGUID || !GConst) return resolveAdd();
+                    const mDN = new GConst();
+                    mDN.toString = () => `<GUID=${gGUID}>`;
+                    const change = new ldap.Change({ operation: 'add', modification: { type: 'member', values: [userDNForGroups] } });
+                    client.modify(mDN, change, () => resolveAdd());
+                });
+            });
+        });
+    }
+};
+
+// --- EDITAR USUÁRIO (Versão Simplificada e Funcional) ---
+exports.updateUserFull = (username, data, adminUser, adminPass) => {
+    return new Promise(async (resolve, reject) => {
+        const client = ldap.createClient({ 
+            url: process.env.AD_URL, 
+            tlsOptions: { rejectUnauthorized: false } 
+        });
+
+        const bindUser = adminUser || process.env.AD_USER;
+        const bindPass = adminPass || process.env.AD_PASSWORD;
+
+        client.bind(bindUser, bindPass, (bindErr) => {
+            if (bindErr) {
+                client.unbind();
+                return reject(new Error('Erro de autenticação no AD.'));
+            }
+
+            const searchOptions = {
+                filter: `(sAMAccountName=${username})`,
+                scope: 'sub',
+                attributes: ['objectGUID', 'cn', 'memberOf', 'distinguishedName']
+            };
+
+            client.search(process.env.AD_BASE, searchOptions, (searchErr, searchRes) => {
+                if (searchErr) { client.unbind(); return reject(searchErr); }
+
+                let userData = null;
+                searchRes.on('searchEntry', (entry) => {
+                    const pureDNVals = getAttributeValue(entry.attributes, 'distinguishedName');
+                    const rawDN = (pureDNVals && pureDNVals.length > 0) ? pureDNVals[0] : entry.objectName.toString();
+                    
+                    const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
+                    const guid = guidAttr.buffers ? guidAttr.buffers[0].toString('hex') : Buffer.from(guidAttr.values[0], 'binary').toString('hex');
+
+                    userData = {
+                        dn: rawDN,
+                        guid: guid,
+                        DNConstructor: entry.objectName.constructor,
+                        memberOf: getAttributeValue(entry.attributes, 'memberOf') || []
+                    };
+                });
+
+                searchRes.on('end', async () => {
+                    if (!userData) { client.unbind(); return reject(new Error('Usuário não encontrado.')); }
+
+                    try {
+                        const userMagicDN = new userData.DNConstructor();
+                        userMagicDN.toString = () => `<GUID=${userData.guid}>`;
+                        userMagicDN.format = () => `<GUID=${userData.guid}>`;
+
+                        const mods = [];
+                        if (data.displayName) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'displayName', values: [data.displayName] } }));
+                        if (data.description) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'description', values: [data.description] } }));
+                        if (data.departmentNumber) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'departmentNumber', values: [data.departmentNumber] } }));
+
+                        if (mods.length > 0) {
+                            await new Promise((res, rej) => client.modify(userMagicDN, mods, (err) => err ? rej(err) : res()));
+                            console.log(`✅ Atributos de ${username} atualizados.`);
+                        }
+
+                        if (data.targetGroups) {
+                            await syncGroups(client, userData.dn, userData.memberOf, data.targetGroups);
+                        }
+
+                        client.unbind();
+                        resolve(true);
+                    } catch (error) {
+                        console.error('❌ Erro no Update:', error.message);
+                        if (client) client.unbind();
+                        reject(error);
+                    }
+                });
+            });
+        });
+    });
+};
+
+// --- BUSCAR DETALHES COMPLETOS DO USUÁRIO NO AD ---
+exports.getUserDetails = (username, adminUser, adminPass) => {
+    return new Promise((resolve, reject) => {
+        const client = ldap.createClient({ url: process.env.AD_URL, tlsOptions: { rejectUnauthorized: false } });
+        const bindUser = adminUser || process.env.AD_USER;
+        const bindPass = adminPass || process.env.AD_PASSWORD;
+
+        client.bind(bindUser, bindPass, (err) => {
+            if (err) {
+                client.unbind();
+                return reject(err);
+            }
+            const opts = {
+                filter: `(sAMAccountName=${username})`,
+                scope: 'sub',
+                attributes: ['displayName', 'description', 'department', 'departmentNumber', 'manager', 'memberOf']
+            };
+            client.search(process.env.AD_BASE, opts, (sErr, sRes) => {
+                if (sErr) {
+                    client.unbind();
+                    return reject(sErr);
+                }
+                let found = null;
+                sRes.on('searchEntry', (entry) => {
+                    const disp = getAttributeValue(entry.attributes, 'displayName');
+                    const desc = getAttributeValue(entry.attributes, 'description');
+                    const dept = getAttributeValue(entry.attributes, 'department');
+                    const dnum = getAttributeValue(entry.attributes, 'departmentNumber');
+                    const mgr = getAttributeValue(entry.attributes, 'manager');
+                    const groups = getAttributeValue(entry.attributes, 'memberOf');
+
+                    found = {
+                        displayName: (disp && disp[0]) || '',
+                        description: (desc && desc[0]) || '',
+                        department: (dept && dept[0]) || '',
+                        departmentNumber: (dnum && dnum[0]) || '',
+                        manager: (mgr && mgr[0]) || '',
+                        groups: groups || [], // Array de DNs dos grupos
+                        dn: entry.objectName.toString()
+                    };
+                });
+                sRes.on('end', () => {
+                    client.unbind();
+                    resolve(found);
+                });
+                sRes.on('error', (e) => {
+                    client.unbind();
+                    reject(e);
+                });
+            });
+        });
+    });
+};
