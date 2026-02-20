@@ -146,10 +146,21 @@ export async function openUserModal(username) {
                 const chipsHtml = selectedGroups.map((g, index) => {
                     const cn = g.match(/CN=([^,]+)/i)?.[1] || g;
                     const cleanCN = decodeADString(cn);
+                    
+                    // Verifica se o grupo é novo (não estava no AD originalmente)
+                    const isNew = !current.groups.includes(g);
+                    
+                    // Define as cores: Emerald (Verde) para novos, Blue (Azul) para existentes
+                    const colorClasses = isNew 
+                        ? "bg-emerald-50 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800/50" 
+                        : "bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-800/50";
+
                     return `
-                        <div class="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-[10px] font-bold px-2 py-1 rounded border border-blue-100 dark:border-blue-800/50 mr-2 mb-2 group">
+                        <div class="flex items-center gap-1 ${colorClasses} text-[10px] font-bold px-2 py-1 rounded border mr-2 mb-2 group">
                             <span>${cleanCN}</span>
-                            <button type="button" class="btn-remove-group hover:text-red-500 opacity-60 group-hover:opacity-100 transition" data-index="${index}"><i data-lucide="x" class="w-3 h-3"></i></button>
+                            <button type="button" class="btn-remove-group hover:text-red-500 opacity-60 group-hover:opacity-100 transition" data-index="${index}">
+                                <i data-lucide="x" class="w-3 h-3"></i>
+                            </button>
                         </div>`;
                 }).join('');
 
@@ -172,54 +183,98 @@ export async function openUserModal(username) {
                 if (window.lucide) lucide.createIcons();
             };
 
-            // SELETOR DE GRUPOS COM BUSCA EM TEMPO REAL
             const showGroupSelector = async () => {
-                const { value: groupDN } = await Swal.fire({
-                    title: 'Adicionar Grupo',
-                    background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#fff',
-                    color: document.documentElement.classList.contains('dark') ? '#f1f5f9' : '#1e293b',
-                    html: `
-                        <div class="p-1">
-                            <input type="text" id="swal-search-groups" class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm mb-4 outline-none focus:ring-2 focus:ring-blue-500" placeholder="Pesquisar grupo...">
-                            <div id="swal-groups-list" class="max-h-[300px] overflow-y-auto custom-scrollbar flex flex-col gap-1 text-left">
-                                ${allADGroups.map(g => `
-                                    <button class="group-opt w-full px-3 py-2 text-[11px] rounded hover:bg-blue-600 hover:text-white text-slate-600 dark:text-slate-300 transition-colors text-left font-medium border border-transparent" data-dn="${g.dn}" data-cn="${g.cn}">
-                                        ${decodeADString(g.cn)}
+            // Set temporário para armazenar o que for clicado no modal
+            let tempSelected = new Set();
+
+            const { value: confirmedGroups } = await Swal.fire({
+                title: 'Selecionar Grupos',
+                background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#fff',
+                color: document.documentElement.classList.contains('dark') ? '#f1f5f9' : '#1e293b',
+                html: `
+                    <div class="p-1">
+                        <input type="text" id="swal-search-groups" 
+                            class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm mb-4 outline-none focus:ring-2 focus:ring-blue-500" 
+                            placeholder="Pesquisar grupos (ex: TI, Gestão...)" autocomplete="off">
+                        
+                        <div id="swal-groups-list" class="max-h-[350px] overflow-y-auto custom-scrollbar flex flex-col gap-1 text-left">
+                            ${allADGroups.map(g => {
+                                // Verifica se o usuário já tem esse grupo no grid principal
+                                const isAlreadySelected = selectedGroups.includes(g.dn);
+                                return `
+                                    <button class="group-opt w-full px-3 py-2 text-[11px] rounded transition-all text-left font-medium border ${isAlreadySelected ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-800' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'}" 
+                                        data-dn="${g.dn}" 
+                                        data-cn="${g.cn}"
+                                        ${isAlreadySelected ? 'disabled' : ''}>
+                                        <div class="flex items-center justify-between">
+                                            <span>${decodeADString(g.cn)}</span>
+                                            <i data-lucide="check" class="w-3 h-3 text-blue-500 hidden check-icon"></i>
+                                        </div>
                                     </button>
-                                `).join('')}
-                            </div>
+                                `;
+                            }).join('')}
                         </div>
-                    `,
-                    showConfirmButton: false,
-                    heightAuto: false, 
-                    scrollbarPadding: false,
-                    didOpen: () => {
-                        const searchInput = document.getElementById('swal-search-groups');
-                        const list = document.getElementById('swal-groups-list');
-                        const options = list.querySelectorAll('.group-opt');
+                    </div>
+                `,
+                showCancelButton: true,
+                heightAuto: false, 
+                scrollbarPadding: false,
+                confirmButtonText: 'Confirmar Seleção',
+                confirmButtonColor: '#2563eb',
+                cancelButtonText: 'Cancelar',
+                // Não deixa fechar ao clicar no grupo, agora o OK é no botão Confirmar
+                preConfirm: () => {
+                    return Array.from(tempSelected);
+                },
+                didOpen: () => {
+                    const searchInput = document.getElementById('swal-search-groups');
+                    const list = document.getElementById('swal-groups-list');
+                    const options = list.querySelectorAll('.group-opt:not([disabled])');
 
-                        searchInput.focus();
-                        searchInput.oninput = (e) => {
-                            const term = e.target.value.toLowerCase();
-                            options.forEach(opt => {
-                                const cn = opt.getAttribute('data-cn').toLowerCase();
-                                opt.style.display = cn.includes(term) ? 'block' : 'none';
-                            });
-                        };
+                    if (window.lucide) lucide.createIcons();
+                    searchInput.focus();
 
+                    // Lógica de Filtro
+                    searchInput.oninput = (e) => {
+                        const term = e.target.value.toLowerCase();
                         options.forEach(opt => {
-                            opt.onclick = () => {
-                                const dn = opt.getAttribute('data-dn');
-                                Swal.close();
-                                if (dn && !selectedGroups.includes(dn)) {
-                                    selectedGroups.push(dn);
-                                    updateGroupsUI();
-                                }
-                            };
+                            const cn = opt.getAttribute('data-cn').toLowerCase();
+                            opt.style.display = cn.includes(term) ? 'block' : 'none';
                         });
-                    }
-                });
-            };
+                    };
+
+                    // Lógica de "Toggle" (Marcar/Desmarcar)
+                    options.forEach(opt => {
+                        opt.onclick = () => {
+                            const dn = opt.getAttribute('data-dn');
+                            const checkIcon = opt.querySelector('.check-icon');
+
+                            if (tempSelected.has(dn)) {
+                                tempSelected.delete(dn);
+                                opt.classList.remove('bg-blue-50', 'dark:bg-blue-900/30', 'border-blue-200', 'dark:border-blue-800');
+                                checkIcon.classList.add('hidden');
+                            } else {
+                                tempSelected.add(dn);
+                                opt.classList.add('bg-blue-50', 'dark:bg-blue-900/30', 'border-blue-200', 'dark:border-blue-800');
+                                checkIcon.classList.remove('hidden');
+                            }
+                            
+                            // Atualiza o texto do botão de confirmar com a contagem
+                            const confirmBtn = Swal.getConfirmButton();
+                            confirmBtn.innerText = tempSelected.size > 0 
+                                ? `Adicionar ${tempSelected.size} grupo(s)` 
+                                : 'Confirmar Seleção';
+                        };
+                    });
+                }
+            });
+
+            // Se confirmou, adiciona todos os novos grupos ao array principal
+            if (confirmedGroups && confirmedGroups.length > 0) {
+                selectedGroups = [...new Set([...selectedGroups, ...confirmedGroups])];
+                updateGroupsUI();
+            }
+        };
 
             body.innerHTML = `
                 <div class="col-span-2">
@@ -233,7 +288,7 @@ export async function openUserModal(username) {
                 
                 <div>
                     <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Perfil / Setor</label>
-                    <select id="edit-perfil" class="w-full bg-slate-100 dark:bg-slate-900 border-none rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200 font-bold text-blue-600">
+                    <select id="edit-perfil" class="w-full bg-slate-100 dark:bg-slate-900 border-none rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200>
                         <option value="">Manter atual...</option>
                         ${Object.keys(PERFIL_MAP).map(p => `<option value="${p}">${p}</option>`).join('')}
                     </select>
@@ -362,7 +417,8 @@ const saveUserChanges = async (username, finalGroups) => {
                 icon: 'success',
                 timer: 1500,
                 showConfirmButton: false,
-                heightAuto: false,
+                heightAuto: false, 
+                scrollbarPadding: false,
                 background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#fff',
                 color: document.documentElement.classList.contains('dark') ? '#f1f5f9' : '#1e293b'
             });
@@ -380,6 +436,7 @@ const saveUserChanges = async (username, finalGroups) => {
             text: err.message, 
             icon: 'error', 
             heightAuto: false, 
+            scrollbarPadding: false, 
             background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#fff',
             color: document.documentElement.classList.contains('dark') ? '#f1f5f9' : '#1e293b' 
         });
