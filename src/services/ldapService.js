@@ -4,13 +4,17 @@ const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec); 
 
-// Função auxiliar para formatar data (DD/MM/AAAA)
+// ======================================================================
+// Utilidades
+// ======================================================================
+
+//Retorna a data atual formatada em pt-BR (DD/MM/AAAA).
 function getFormattedDate() {
     const now = new Date();
     return now.toLocaleDateString('pt-BR');
 }
 
-// Função auxiliar para extrair valor de um atributo cru
+// Extrai valor(es) de um atributo de entrada LDAP (compatível com .values / .vals).
 function getAttributeValue(attributes, name) {
     const attr = attributes.find(a => a.type.toLowerCase() === name.toLowerCase());
     if (!attr) return null;
@@ -19,7 +23,7 @@ function getAttributeValue(attributes, name) {
     return null;
 }
 
-// Decodifica strings do AD em formato hex escapado (\c3\a7 -> ç)
+// Decodifica strings do AD que vêm com escapes hexadecimais (\c3\a7 → ç)
 function decodeADString(str) {
     if (!str) return '';
     try {
@@ -29,7 +33,10 @@ function decodeADString(str) {
     }
 }
 
-// --- DESBLOQUEAR USUÁRIO ---
+// DESBLOQUEAR USUÁRIO
+// - Localiza o usuário pelo sAMAccountName
+// - Resolve o GUID e usa "magic DN" (<GUID=...>) para evitar issues de rename/move
+// - Faz replace de lockoutTime = 0
 exports.unlockUserByGUID = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         const client = ldap.createClient({
@@ -37,10 +44,11 @@ exports.unlockUserByGUID = (username, adminUser, adminPass) => {
             tlsOptions: { rejectUnauthorized: false }
         });
 
-        // Usa a credencial de quem clicou, ou cai para o .env se for sistema automático
+        // Usa a credencial dinâmica recebida ou a padrão do ambiente
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
+        // Bind
         client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
@@ -48,6 +56,7 @@ exports.unlockUserByGUID = (username, adminUser, adminPass) => {
                 return reject(new Error('Erro de autenticação no AD. Verifique suas permissões.'));
             }
 
+            // Busca pelo sAMAccountName para obter GUID
             const searchOptions = {
                 filter: `(sAMAccountName=${username})`,
                 scope: 'sub',
@@ -64,9 +73,11 @@ exports.unlockUserByGUID = (username, adminUser, adminPass) => {
                 let DNConstructor = null;
 
                 searchRes.on('searchEntry', (entry) => {
+                    // Captura o construtor de DN para permitir magic DN
                     if (entry.objectName && entry.objectName.constructor) {
                         DNConstructor = entry.objectName.constructor;
                     }
+                    // Extrai GUID do usuário
                     const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
                     if (guidAttr) {
                         if (guidAttr.buffers && guidAttr.buffers.length > 0) {
@@ -83,6 +94,7 @@ exports.unlockUserByGUID = (username, adminUser, adminPass) => {
                         return reject(new Error('Usuário não encontrado ou sem GUID.'));
                     }
 
+                    // 3) Constroi targetDN como <GUID=...> para operar com segurança
                     const magicString = `<GUID=${userGUID}>`;
                     let targetDN;
 
@@ -94,6 +106,7 @@ exports.unlockUserByGUID = (username, adminUser, adminPass) => {
                         targetDN = magicString;
                     }
 
+                    // 4) Modificação: lockoutTime → 0
                     const change = new ldap.Change({
                         operation: 'replace',
                         modification: {
@@ -120,7 +133,12 @@ exports.unlockUserByGUID = (username, adminUser, adminPass) => {
     });
 };
 
-// --- DESATIVAR USUÁRIO ---
+// DESATIVAR USUÁRIO (PROCESSO COMPLETO)
+// Passos principais:
+// 1) Bind e busca usuário (GUID, DN, grupos, UAC, etc.)
+// 2) Remoção de todos os grupos (exceto "Domain Users")
+// 3) Desativar conta (UAC), atualizar displayName/description
+// 4) Mover para OU de desativados (DISABLED_OU)
 exports.disableUserFullProcess = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         
@@ -138,12 +156,14 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
+        // Bind
         client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
                 return reject(new Error('Erro de autenticação no AD. Verifique suas permissões.'));
             }
 
+            // Busca dados necessários do usuário
             const searchOptions = {
                 filter: `(sAMAccountName=${username})`,
                 scope: 'sub',
@@ -161,13 +181,18 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                 let userData = null;
 
                 searchRes.on('searchEntry', (entry) => {
+                    // Extrai atributos relevantes (com fallback de métodos)
                     const cnVals = getAttributeValue(entry.attributes, 'cn');
                     const uacVals = getAttributeValue(entry.attributes, 'userAccountControl');
                     const displayVals = getAttributeValue(entry.attributes, 'displayName');
                     const memberOfVals = getAttributeValue(entry.attributes, 'memberOf');
                     const pureDNVals = getAttributeValue(entry.attributes, 'distinguishedName');
+
+                    // DN "cru" (para memberOf) e DN traduzido (para move)
                     const rawDNString = (pureDNVals && pureDNVals.length > 0) ? pureDNVals[0] : entry.objectName.toString();
                     const translatedDNString = entry.objectName.toString();
+
+                    // Resolve GUID do usuário
                     let userGUID = null;
                     const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
                     if (guidAttr) {
@@ -184,14 +209,14 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                     }
 
                     userData = {
-                        dnForGroups: rawDNString,      
-                        dnForMove: translatedDNString,   
+                        dnForGroups: rawDNString,          // DN usado para operar 'member' nos grupos
+                        dnForMove: translatedDNString,     // DN exibido (pode ser usado em fallback do move)
                         cn: cnVals ? cnVals[0] : '',
                         userAccountControl: uacVals ? uacVals[0] : '512',
                         displayName: displayVals ? displayVals[0] : username,
                         memberOf: memberOfVals || [],
                         guid: userGUID,
-                        DNConstructor: DNConstructor 
+                        DNConstructor: DNConstructor        // Mantém construtor para magic DN
                     };
                 });
 
@@ -202,12 +227,15 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                     }
 
                     try {
-                        // --- REMOVER DOS GRUPOS ---
+                        //  REMOVER DOS GRUPOS (exceto Domain Users)
+                        // - Faz busca do grupo por CN para resgatar GUID
+                        // - Usa magicDN do grupo para modificar membership
                         let groups = Array.isArray(userData.memberOf) ? userData.memberOf : [userData.memberOf];
                         groups = groups.filter(g => g);
                         groups.forEach(g => console.log(`  - ${g}`));
 
                         for (const groupDN of groups) {
+                            // Pula o primário "Domain Users" (e variantes)
                             if (groupDN.toLowerCase().includes('domain users') || 
                                 groupDN.toLowerCase().includes('usuários do domínio')) {
                                 console.log(`⏩ [INFO] Pulando grupo primário: ${groupDN}`);
@@ -215,6 +243,7 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                             }
 
                             await new Promise((resolveGroup) => {
+                                // Extrai CN do DN do grupo
                                 const cnMatch = groupDN.match(/^CN=([^,]+)/);
                                 if (!cnMatch) {
                                     return resolveGroup();
@@ -234,10 +263,11 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                     let groupDNConstructor = null;
                                     
                                     searchRes.on('searchEntry', (entry) => {
+                                        // Garante construtor para magic DN
                                         if (entry.objectName && entry.objectName.constructor) {
                                             groupDNConstructor = entry.objectName.constructor;
                                         }
-                                        
+                                        // Extrai GUID do grupo
                                         const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
                                         if (guidAttr) {
                                             if (guidAttr.buffers && guidAttr.buffers.length > 0) {
@@ -248,6 +278,7 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                         }
                                         
                                         if (groupGUID) {
+                                            // Constrói magic DN do grupo
                                             const magicString = `<GUID=${groupGUID}>`;
                                             let targetGroupDN;
                                             
@@ -259,6 +290,7 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                                 targetGroupDN = magicString;
                                             }
                                             
+                                            // Remove a associação 'member' (userData.dnForGroups)
                                             const change = new ldap.Change({
                                                 operation: 'delete',
                                                 modification: {
@@ -289,7 +321,8 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                             });
                         }
 
-                        // --- DESATIVAR + RENOMEAR + DESCRIÇÃO ---
+                        // DESATIVAR + RENOMEAR + DESCRIÇÃO
+                        // - Usa GUID/magic DN para evitar falha se o DN mudar
                         let targetUserDN = userData.dnForMove;
                         if (userData.guid) {
                             const magicUserString = `<GUID=${userData.guid}>`;
@@ -302,8 +335,9 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                             }
                         }
 
+                        // Ativa bit de desabilitado no UAC e atualiza metadados
                         const currentUAC = parseInt(userData.userAccountControl, 10);
-                        const newUAC = currentUAC | 0x0002; 
+                        const newUAC = currentUAC | 0x0002; // UF_ACCOUNTDISABLE
                         
                         const newDisplay = `Zz ${userData.displayName} Zz`;
                         const newDesc = `Desligado em ${getFormattedDate()}`;
@@ -322,7 +356,9 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                             });
                         });
 
-                        // --- MOVER PARA PASTA DE DESATIVADOS ---
+                        // MOVER PARA OU DE DESATIVADOS
+                        // - Usa modifyDN com "token" para injetar magic DN via DNConstructor
+                        // - Fallback direto com dnForMove, se necessário
                         let rdnName = userData.cn.replace(/([\\,=+<>#;"])/g, '\\$1');
                         const newDN = `CN=${rdnName},${DISABLED_OU}`;
                         
@@ -331,6 +367,7 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                 const DNClass = userData.DNConstructor;
                                 const originalFromString = DNClass.fromString;
                                 
+                                // Monkey-patch controlado para permitir passar um "token" que vira <GUID=...>
                                 DNClass.fromString = function(str) {
                                     if (str === 'MAGIC_MOVE_TOKEN') {
                                         const magicObj = new DNClass();
@@ -342,6 +379,7 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                 };
                                 
                                 client.modifyDN('MAGIC_MOVE_TOKEN', newDN, (moveErr) => {
+                                    // Restaura comportamento original
                                     DNClass.fromString = originalFromString;
                                     
                                     if (moveErr) {
@@ -352,6 +390,7 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
                                     resolveMove({ success: true });
                                 });
                             } else {
+                                // Fallback usando DN "visível"
                                 client.modifyDN(userData.dnForMove, newDN, (moveErr) => {
                                     if (moveErr) return resolveMove({ warning: 'Falha ao mover.' });
                                     resolveMove({ success: true });
@@ -379,7 +418,9 @@ exports.disableUserFullProcess = (username, adminUser, adminPass) => {
     });
 };
 
-// --- EXCLUIR USUÁRIO DEFINITIVO ---
+// EXCLUIR USUÁRIO DEFINITIVO
+// - Busca DN pelo sAMAccountName e executa 'del'
+// - Sem árvore (objeto não deve conter filhos)
 exports.deleteUserByGUID = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         console.log(`\n--- 🗑️ INICIANDO EXCLUSÃO DEFINITIVA: ${username} ---`);
@@ -389,16 +430,17 @@ exports.deleteUserByGUID = (username, adminUser, adminPass) => {
             tlsOptions: { rejectUnauthorized: false }
         });
 
-        // Usa a credencial dinâmica
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
+        // Bind
         client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
                 return reject(new Error('Erro de autenticação no AD. Verifique suas permissões.'));
             }
 
+            // Busca DN do usuário
             const searchOptions = {
                 filter: `(sAMAccountName=${username})`,
                 scope: 'sub',
@@ -424,6 +466,7 @@ exports.deleteUserByGUID = (username, adminUser, adminPass) => {
                         return resolve({ found: false });
                     }
 
+                    // Deleta o objeto
                     client.del(targetDN, (delErr) => {
                         client.unbind();
                         if (delErr) {
@@ -444,7 +487,9 @@ exports.deleteUserByGUID = (username, adminUser, adminPass) => {
     });
 };
 
-// --- DELETAR COMPUTADOR ---
+// EXCLUIR COMPUTADOR
+// - Busca CN=... com objectClass=computer e executa Tree Delete control
+// - Permite deletar objetos com filhos (ex.: BitLocker Keys)
 exports.deleteComputer = (computerName, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         console.log(`\n--- 💻 INICIANDO EXCLUSÃO DE COMPUTADOR: ${computerName} ---`);
@@ -457,12 +502,14 @@ exports.deleteComputer = (computerName, adminUser, adminPass) => {
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
+        // Bind
         client.bind(bindUser, bindPass, (bindErr) => {
             if (bindErr) {
                 client.unbind();
                 return reject(new Error('Erro de autenticação no AD. Verifique suas permissões.'));
             }
 
+            // Busca DN do computador
             const searchOptions = {
                 filter: `(&(objectClass=computer)(cn=${computerName}))`,
                 scope: 'sub',
@@ -488,7 +535,7 @@ exports.deleteComputer = (computerName, adminUser, adminPass) => {
                         return resolve({ found: false });
                     }
 
-                    // Isso permite apagar objetos que contêm filhos (ex: BitLocker Keys)
+                    // Tree Delete Control (OID 1.2.840.113556.1.4.805) para excluir objetos com filhos
                     const treeDeleteControl = new ldap.Control({
                         type: '1.2.840.113556.1.4.805', 
                         criticality: true
@@ -516,7 +563,8 @@ exports.deleteComputer = (computerName, adminUser, adminPass) => {
     });
 };
 
-// --- VERIFICAR SE USUÁRIO EXISTE ---
+// VERIFICAR SE USUÁRIO EXISTE
+// - Busca sAMAccountName e retorna booleano
 exports.checkUserExists = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         const client = ldap.createClient({
@@ -560,7 +608,10 @@ exports.checkUserExists = (username, adminUser, adminPass) => {
     });
 };
 
-// --- CRIAR NOVO USUÁRIO ---
+// CRIAR NOVO USUÁRIO (PROCESSO COMPLETO)
+// - Cria via PowerShell (DirectoryServices) por robustez em senha/UAC
+// - Depois, adiciona o usuário aos grupos via LDAP (usando GUID do grupo)
+// - Suporta forcePwdChange, jobTitle->description, seniority->departmentNumber
 exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser, adminPass) => {
     return new Promise(async (resolve, reject) => {
         const client = ldap.createClient({
@@ -571,6 +622,7 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
+        // Monta DN do novo usuário e metadado de externo (PJ)
         const rdnName = `${userData.firstName} ${userData.lastName}`.replace(/([\\,=+<>#;"])/g, '\\$1');
         const newUserDN = `CN=${rdnName},${targetOU}`;
         const isExterno = userData.contractType === 'PJ' ? 'TRUE' : 'FALSE';
@@ -578,10 +630,12 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
         try {
             console.log(`⏳ [SERVICE] Criando conta via PowerShell usando credencial: ${bindUser}`);
 
+            // Comandos condicionais no PS (senha expira ao logar, descrição, senioridade)
             const pwdLastSetCommand = userData.forcePwdChange ? '$userEntry.put("pwdLastSet", 0)' : '';
             const descCmd = userData.jobTitle ? `$newUser.Put("description", "${userData.jobTitle.replace(/"/g, '""')}")` : '';
             const deptCmd = userData.seniority ? `$newUser.Put("departmentNumber", "${userData.seniority.replace(/"/g, '""')}")` : '';
 
+            // Script PowerShell (DirectoryServices) para criar user + senha + UAC
             const psScript = `
                 $ProgressPreference = 'SilentlyContinue'
                 try {
@@ -621,6 +675,7 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
                 }
             `;
 
+            // Encoda o script em base64 para execução segura
             const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
             const { stdout, stderr } = await execPromise(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${base64Script}`);
 
@@ -629,6 +684,7 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
             }
             console.log('✅ [SUCESSO] Conta criada e ativada.');
 
+            // Rebind para operar nos grupos via LDAP
             await new Promise((resolveBind, rejectBind) => {
                 client.bind(bindUser, bindPass, (err) => {
                     if (err) rejectBind(new Error('Erro de autenticação no AD para inserção nos grupos.'));
@@ -636,7 +692,7 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
                 });
             });
 
-            // ADICIONAR AOS GRUPOS
+            // Adiciona o novo usuário em cada grupo alvo
             for (const groupDN of targetGroups) {
                 await new Promise((resolveGroup) => {
                     const cnMatch = groupDN.match(/^CN=([^,]+)/);
@@ -680,6 +736,7 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
                                 targetGroupDN = magicString;
                             }
 
+                            // Adiciona 'member' = DN do novo usuário
                             const change = new ldap.Change({
                                 operation: 'add',
                                 modification: { type: 'member', values: [newUserDN] }
@@ -715,7 +772,9 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
     });
 };
 
-// --- FUNÇÃO DE SINCRONIZAR GRUPOS (Versão Suprema via GUID) ---
+// SINCRONIZAR GRUPOS (via GUID) — Função interna de suporte
+// - Normaliza strings para tratar variações (ex.: ç vs \c3\a7)
+// - Calcula diff (toAdd / toRemove) e aplica por GUID (robustez)
 const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
     
     // Normalização para comparação (ç e \c3\a7 viram a mesma coisa)
@@ -738,19 +797,20 @@ const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
 
     console.log(`📊 [SYNC GROUPS] Localizado: +${toAdd.length} para adicionar | -${toRemove.length} para remover`);
 
-    // Usar o GUID do usuário para garantir o vínculo correto
+    // Magic DN do usuário por GUID (evita problemas se DN mudar)
     const userMagicDN = `<GUID=${userGUID}>`;
 
+    // Helper: altera associação do usuário em um grupo (add/delete) usando GUID do grupo
     const modifyGroupMembership = async (groupDN, action) => {
-        // Extrai o CN da string (seja ela um DN completo ou apenas o CN)
+        // Extrai o CN da string (seja DN completo ou somente "CN=...")
         const cnMatch = groupDN.match(/CN=([^,]+)/i);
         if (!cnMatch) return;
 
-        // Isso garante que a busca (cn=...) funcione perfeitamente no AD
+        // CN "limpo" para a consulta
         const groupCN = decodeADString(cnMatch[1]); 
 
         return new Promise((resolve) => {
-            // Busca o GUID do grupo usando o CN limpo
+            // Busca GUID do grupo por CN
             client.search(process.env.AD_BASE, {
                 filter: `(&(objectClass=group)(cn=${groupCN}))`, 
                 scope: 'sub',
@@ -776,7 +836,7 @@ const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
                         return resolve();
                     }
 
-                    // Vínculo Final: GUID do Grupo <-> GUID do Usuário
+                    // Magic DN do grupo por GUID
                     const groupMagicDN = new Constructor();
                     groupMagicDN.toString = () => `<GUID=${groupGUID}>`;
 
@@ -784,7 +844,7 @@ const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
                         operation: action,
                         modification: { 
                             type: 'member', 
-                            values: [`<GUID=${userGUID}>`] 
+                            values: [userMagicDN] 
                         }
                     });
 
@@ -801,13 +861,17 @@ const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
         });
     };
 
-    // Executa as remoções primeiro
+    // Executa as remoções primeiro (boa prática)
     for (const g of toRemove) await modifyGroupMembership(g, 'delete');
-    // Executa as adições
+    // Depois, as adições
     for (const g of toAdd) await modifyGroupMembership(g, 'add');
 };
 
-// --- EDITAR USUÁRIO ---
+// EDITAR USUÁRIO (ATRIBUTOS + GRUPOS + MOVE OU)
+// - Busca GUID/DN do usuário
+// - Modifica atributos por magic DN (GUID)
+// - Sincroniza grupos (via syncGroups)
+// - Fecha LDAP e move OU via PowerShell (DirectoryServices) com busca interna
 exports.updateUserFull = (username, data, adminUser, adminPass) => {
     return new Promise(async (resolve, reject) => {
         const client = ldap.createClient({ 
@@ -818,6 +882,7 @@ exports.updateUserFull = (username, data, adminUser, adminPass) => {
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
+        // Bind
         client.bind(bindUser, bindPass, async (bindErr) => {
             if (bindErr) {
                 client.unbind();
@@ -825,7 +890,7 @@ exports.updateUserFull = (username, data, adminUser, adminPass) => {
             }
 
             try {
-                // BUSCA O USUÁRIO (Precisamos do GUID e do DN atual)
+                // Busca o usuário (GUID, DN atual, grupos)
                 const user = await new Promise((res, rej) => {
                     const opts = { filter: `(sAMAccountName=${username})`, scope: 'sub', attributes: ['objectGUID', 'distinguishedName', 'memberOf'] };
                     client.search(process.env.AD_BASE, opts, (err, sRes) => {
@@ -846,7 +911,7 @@ exports.updateUserFull = (username, data, adminUser, adminPass) => {
 
                 if (!user) throw new Error('Usuário não encontrado.');
 
-                // ATUALIZAR ATRIBUTOS E GRUPOS VIA LDAP
+                // Modifica atributos e grupos via magic DN (<GUID=...>)
                 const magicUserDN = new user.DNConstructor();
                 magicUserDN.toString = () => `<GUID=${user.guid}>`;
                 magicUserDN.format = () => `<GUID=${user.guid}>`;
@@ -863,15 +928,16 @@ exports.updateUserFull = (username, data, adminUser, adminPass) => {
                     await syncGroups(client, user.guid, user.groups, data.targetGroups);
                 }
 
-                // FECHA O LDAP ANTES DO POWERSHELL (Libera o lock do objeto)
+                // Fecha LDAP antes do PowerShell (evita locks no objeto)
                 client.unbind();
                 console.log(`🔒 Conexão LDAP encerrada para ${username}. Iniciando movimentação...`);
 
-                // MOVER DE OU (POWERSHELL COM BUSCA INTERNA)
+                // Move de OU via PowerShell (busca interna por sAMAccountName)
                 if (data.targetOU) {
                     const currentDN = user.dn.toLowerCase();
                     const targetOUPath = data.targetOU.toLowerCase().trim();
 
+                    // Move apenas se ainda não estiver na OU destino
                     if (!currentDN.includes(targetOUPath)) {
                         console.log(`🚀 [POWERSHELL] Movendo ${username} via Busca Interna (Base64)...`);
 
@@ -931,7 +997,9 @@ exports.updateUserFull = (username, data, adminUser, adminPass) => {
     });
 };
 
-// --- BUSCAR DETALHES COMPLETOS DO USUÁRIO NO AD ---
+// BUSCAR DETALHES COMPLETOS DO USUÁRIO
+// - Retorna displayName, description, department, departmentNumber,
+//   manager, memberOf e DN.
 exports.getUserDetails = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         const client = ldap.createClient({ url: process.env.AD_URL, tlsOptions: { rejectUnauthorized: false } });
@@ -985,6 +1053,8 @@ exports.getUserDetails = (username, adminUser, adminPass) => {
     });
 };
 
+// LISTAR TODOS OS GRUPOS DO AD (para seletores da UI)
+// - Retorna {dn, cn} ordenados alfabeticamente
 exports.getAllADGroups = (adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
         const client = ldap.createClient({ url: process.env.AD_URL, tlsOptions: { rejectUnauthorized: false } });
@@ -993,7 +1063,7 @@ exports.getAllADGroups = (adminUser, adminPass) => {
             if (err) return reject(err);
 
             const opts = {
-                filter: '(objectClass=group)', // Filtra apenas por objetos do tipo Grupo
+                filter: '(objectClass=group)',
                 scope: 'sub',
                 attributes: ['distinguishedName', 'cn']
             };

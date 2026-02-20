@@ -4,7 +4,8 @@ import { calcTimeInCompany, formatDate, getRoleBadge } from "../utils/format.js"
 import { unlockUserAccount, confirmDisable } from "../features/userActions.js";    
 import { refreshAfterUserAction } from "../features/sectionLoader.js";                         
 
-// Mapeia "Perfil/Setor" -> grupos padrão no AD
+// Mapeamento de "Perfil/Setor" para grupos padrão e OU destino no AD.
+// Usado quando o usuário altera o campo "Perfil/Setor" no modo de edição.
 const PERFIL_MAP = {
     'TI': { 
         groups: ['CN=Dev - TI,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br', 'CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'],
@@ -28,7 +29,9 @@ const PERFIL_MAP = {
     }
 };
 
-// Decodifica strings do AD em formato hex escapado (\c3\a7 -> ç)
+
+// Decodifica strings do AD que vêm com escapes hexadecimais (\c3\a7 → ç).
+// Evita exibir nomes/OU com caracteres quebrados.
 function decodeADString(str) {
     if (!str) return '';
     try {
@@ -38,7 +41,12 @@ function decodeADString(str) {
     }
 }
 
-// Abre o modal do usuário, busca detalhes no backend e renderiza visão/edição
+// ======================================================================
+// Abre o modal de usuário, carrega detalhes do AD e renderiza:
+// - Modo de visualização (dados, grupos, OU)
+// - Modo de edição (campos editáveis, seleção de grupos, perfil/OU)
+// Integra com ações (desbloquear, desativar) e persistência (PUT).
+// ======================================================================
 export async function openUserModal(username) {
     const userStore = store.globalUsers.find((u) => u.username === username);
     if (!userStore) return;
@@ -48,7 +56,7 @@ export async function openUserModal(username) {
     const body = document.getElementById('modalBody');
     const footer = document.getElementById('modalFooter');
 
-    // Estado inicial de carregamento
+    // Estado inicial de carregamento visual
     body.innerHTML = `
         <div class="col-span-2 flex flex-col items-center justify-center py-20 gap-4">
             <i data-lucide="loader-2" class="animate-spin h-10 w-10 text-blue-500"></i>
@@ -60,7 +68,6 @@ export async function openUserModal(username) {
     if (window.lucide) lucide.createIcons();
 
     try {
-        // BUSCA DETALHES + LISTA COMPLETA DE GRUPOS DO AD
         const [userRes, groupsRes] = await Promise.all([
             fetch(`/api/users/${username}/details`),
             fetch('/api/groups') 
@@ -69,12 +76,18 @@ export async function openUserModal(username) {
         const adData = await userRes.json();
         let allADGroups = await groupsRes.json();
 
+        // Garante que a lista de grupos seja um array válido
         if (!Array.isArray(allADGroups)) {
             allADGroups = []; 
         }
 
         const details = adData.details;
 
+        // ==============================================================
+        // MODO VISUALIZAÇÃO
+        // Mostra informações do colaborador: nome, email, cargo, status,
+        // tempo de empresa, último logon, OU e chips dos grupos.
+        // ==============================================================
         const renderViewMode = () => {
             const c = ROLE_COLORS[userStore.role] || ROLE_COLORS.COLABORADOR;
             const timeStr = calcTimeInCompany(userStore.data_inicio);
@@ -88,6 +101,7 @@ export async function openUserModal(username) {
                 return `<span class="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 mr-2 mb-2">${cleanCN}</span>`;
             }).join('');
 
+            // Cabeçalho e colunas de informações
             body.innerHTML = `
                 <div class="col-span-2 flex items-center gap-5 mb-4">
                     <div class="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold border-2" style="background-color: ${c.bg}; color: ${c.text}; border-color: ${c.bg}">
@@ -122,6 +136,7 @@ export async function openUserModal(username) {
                 </div>
             `;
 
+            // Botões de ação (editar, desbloquear, desativar)
             footer.innerHTML = `
                 <div class="flex items-center space-x-2">
                     <button id="btn-edit" class="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-500 hover:text-blue-500 transition shadow-sm"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
@@ -130,15 +145,25 @@ export async function openUserModal(username) {
                 </div>
             `;
 
+            // Handlers do modo visualização
             footer.querySelector('#btn-edit').onclick = () => enterEditMode(username, details);
             footer.querySelector('#btn-unlock').onclick = () => unlockUserAccount(username);
             footer.querySelector('#btn-disable').onclick = () => confirmDisable(username, details.displayName);
             if (window.lucide) lucide.createIcons();
         };
 
+        // ==============================================================
+        // MODO EDIÇÃO
+        // Permite editar displayName, descrição, senioridade e gerenciar
+        // grupos via seletor com busca + multi-seleção (SweetAlert).
+        // O campo OU é preenchido automaticamente ao trocar de Perfil/Setor.
+        // ==============================================================
         const enterEditMode = (username, current) => {
             let selectedGroups = [...current.groups];
 
+            // ------------------------------
+            // Atualiza a UI dos chips/grupos
+            // ------------------------------
             const updateGroupsUI = () => {
                 const container = document.getElementById('edit-groups-container');
                 if (!container) return;
@@ -147,10 +172,8 @@ export async function openUserModal(username) {
                     const cn = g.match(/CN=([^,]+)/i)?.[1] || g;
                     const cleanCN = decodeADString(cn);
                     
-                    // Verifica se o grupo é novo (não estava no AD originalmente)
+                    // Marca visualmente grupos "novos" (não pertenciam ao AD do usuário)
                     const isNew = !current.groups.includes(g);
-                    
-                    // Define as cores: Emerald (Verde) para novos, Blue (Azul) para existentes
                     const colorClasses = isNew 
                         ? "bg-emerald-50 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800/50" 
                         : "bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-800/50";
@@ -164,7 +187,7 @@ export async function openUserModal(username) {
                         </div>`;
                 }).join('');
 
-                // Botão de Adição Estilizado dentro do grid
+                // Botão para adicionar novos grupos via modal seletor
                 container.innerHTML = `
                     ${chipsHtml}
                     <button type="button" id="trigger-group-selector" class="flex items-center gap-1 bg-slate-200 dark:bg-slate-800 text-slate-500 hover:bg-blue-600 hover:text-white text-[10px] font-bold px-3 py-1 rounded border border-dashed border-slate-400 dark:border-slate-700 transition-all mb-2">
@@ -172,6 +195,7 @@ export async function openUserModal(username) {
                     </button>
                 `;
                 
+                // Remoção de grupos individuais
                 container.querySelectorAll('.btn-remove-group').forEach(btn => {
                     btn.onclick = (e) => {
                         selectedGroups.splice(e.currentTarget.dataset.index, 1);
@@ -179,10 +203,17 @@ export async function openUserModal(username) {
                     };
                 });
 
+                // Abre o seletor de grupos
                 document.getElementById('trigger-group-selector').onclick = showGroupSelector;
                 if (window.lucide) lucide.createIcons();
             };
 
+            // ----------------------------------------------------------
+            // Seletor de grupos (SweetAlert):
+            // - Busca por texto
+            // - Seleção múltipla com feedback visual
+            // - Evita escolher grupos já aplicados no grid principal
+            // ----------------------------------------------------------
             const showGroupSelector = async () => {
             // Set temporário para armazenar o que for clicado no modal
             let tempSelected = new Set();
@@ -199,7 +230,7 @@ export async function openUserModal(username) {
                         
                         <div id="swal-groups-list" class="max-h-[350px] overflow-y-auto custom-scrollbar flex flex-col gap-1 text-left">
                             ${allADGroups.map(g => {
-                                // Verifica se o usuário já tem esse grupo no grid principal
+                                // Desabilita seleção de grupos já presentes no grid principal
                                 const isAlreadySelected = selectedGroups.includes(g.dn);
                                 return `
                                     <button class="group-opt w-full px-3 py-2 text-[11px] rounded transition-all text-left font-medium border ${isAlreadySelected ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-800' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'}" 
@@ -222,7 +253,7 @@ export async function openUserModal(username) {
                 confirmButtonText: 'Confirmar Seleção',
                 confirmButtonColor: '#2563eb',
                 cancelButtonText: 'Cancelar',
-                // Não deixa fechar ao clicar no grupo, agora o OK é no botão Confirmar
+                // Retorna a seleção ao confirmar
                 preConfirm: () => {
                     return Array.from(tempSelected);
                 },
@@ -234,7 +265,7 @@ export async function openUserModal(username) {
                     if (window.lucide) lucide.createIcons();
                     searchInput.focus();
 
-                    // Lógica de Filtro
+                    // Filtro por termo digitado (match no CN)
                     searchInput.oninput = (e) => {
                         const term = e.target.value.toLowerCase();
                         options.forEach(opt => {
@@ -243,7 +274,7 @@ export async function openUserModal(username) {
                         });
                     };
 
-                    // Lógica de "Toggle" (Marcar/Desmarcar)
+                    // Toggle de seleção: marca/desmarca e atualiza botão Confirmar
                     options.forEach(opt => {
                         opt.onclick = () => {
                             const dn = opt.getAttribute('data-dn');
@@ -259,7 +290,7 @@ export async function openUserModal(username) {
                                 checkIcon.classList.remove('hidden');
                             }
                             
-                            // Atualiza o texto do botão de confirmar com a contagem
+                            // Feedback de quantidade a adicionar
                             const confirmBtn = Swal.getConfirmButton();
                             confirmBtn.innerText = tempSelected.size > 0 
                                 ? `Adicionar ${tempSelected.size} grupo(s)` 
@@ -269,13 +300,16 @@ export async function openUserModal(username) {
                 }
             });
 
-            // Se confirmou, adiciona todos os novos grupos ao array principal
+            // Se confirmou, mescla seleção ao conjunto atual sem duplicar
             if (confirmedGroups && confirmedGroups.length > 0) {
                 selectedGroups = [...new Set([...selectedGroups, ...confirmedGroups])];
                 updateGroupsUI();
             }
         };
 
+            // -----------------------------------------
+            // Form de edição (inputs e container grupos)
+            // -----------------------------------------
             body.innerHTML = `
                 <div class="col-span-2">
                     <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Nome de Exibição</label>
@@ -324,13 +358,16 @@ export async function openUserModal(username) {
                 </div>
             `;
 
+            // Rodapé do modo de edição
             footer.innerHTML = `
                 <button id="btn-cancel-edit" class="px-4 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 transition">Cancelar</button>
                 <button id="btn-save-edit" class="w-[180px] h-9 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"><i data-lucide="save" class="w-4 h-4"></i>Salvar Alterações</button>
             `;
 
+            // Inicializa chips e listener do Perfil/Setor
             updateGroupsUI();
 
+            // Ao trocar Perfil/Setor: aplica grupos e OU do mapeamento
             document.getElementById('edit-perfil').addEventListener('change', (e) => {
                 const config = PERFIL_MAP[e.target.value];
                 if (config) {
@@ -345,16 +382,20 @@ export async function openUserModal(username) {
                 }
             });
 
+            // Ações do rodapé (cancelar/Salvar)
             footer.querySelector('#btn-cancel-edit').onclick = renderViewMode;
             footer.querySelector('#btn-save-edit').onclick = () => saveUserChanges(username, selectedGroups);
         };
 
+        // Render inicial: modo visualização
         renderViewMode();
 
     } catch (err) {
+        // Tratativa de erro de carregamento inicial
         body.innerHTML = `<div class="col-span-2 py-10 text-center text-red-500 text-sm font-bold">Erro ao carregar dados: ${err.message}</div>`;
     }
 
+    // Animação de entrada suave do modal/conteúdo
     setTimeout(() => {
         modal.classList.remove('opacity-0');
         content.classList.remove('scale-95');
@@ -362,7 +403,13 @@ export async function openUserModal(username) {
     }, 10);
 }
 
-// Persiste alterações do usuário (PUT)
+// ======================================================================
+// Salvamento das alterações (PUT):
+// - Confirmação via SweetAlert
+// - Envio do payload (displayName, description, deptNumber, OU, grupos)
+// - Atualiza store local em caso de sucesso
+// - Recarrega seção/lista após ação
+// ======================================================================
 const saveUserChanges = async (username, finalGroups) => {
     const saveBtn = document.getElementById('btn-save-edit');
     
@@ -381,11 +428,12 @@ const saveUserChanges = async (username, finalGroups) => {
 
     if (!result.isConfirmed) return;
 
+    // Estado de salvamento (loading)
     saveBtn.disabled = true;
     saveBtn.innerHTML = `<i data-lucide="loader-2" class="animate-spin w-4 h-4"></i> Salvando...`;
     if (window.lucide) lucide.createIcons();
 
-    // Re-mapear o campo OU para o valor cru se necessário (backend trata a busca por distinguishedName)
+    // Monta payload a partir dos campos do formulário
     const payload = {
         displayName: document.getElementById('edit-displayname').value,
         description: document.getElementById('edit-description').value,
@@ -395,6 +443,7 @@ const saveUserChanges = async (username, finalGroups) => {
     };
 
     try {
+        // Requisição PUT para atualizar usuário no backend/AD
         const response = await fetch(`/api/users/${username}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -402,7 +451,7 @@ const saveUserChanges = async (username, finalGroups) => {
         });
 
         if (response.ok) {
-            // Atualização do Store Local
+            // Sincroniza store local para refletir alterações na UI imediatamente
             const userIndex = store.globalUsers.findIndex(u => u.username === username);
             if (userIndex !== -1) {
                 store.globalUsers[userIndex].display_name = payload.displayName;
@@ -411,6 +460,7 @@ const saveUserChanges = async (username, finalGroups) => {
                 store.globalUsers[userIndex].member_of = payload.targetGroups.join(';');
             }
             
+            // Feedback de sucesso rápido
             await Swal.fire({
                 title: 'Sucesso!',
                 text: 'Usuário atualizado com sucesso!',
@@ -423,6 +473,7 @@ const saveUserChanges = async (username, finalGroups) => {
                 color: document.documentElement.classList.contains('dark') ? '#f1f5f9' : '#1e293b'
             });
 
+            // Fecha modal e recarrega seção/tabela
             closeModal();
             await refreshAfterUserAction();
 
@@ -431,6 +482,7 @@ const saveUserChanges = async (username, finalGroups) => {
             throw new Error(error.error || 'Erro ao salvar alterações');
         }
     } catch (err) {
+        // Feedback de erro e restaura botão de salvar
         Swal.fire({ 
             title: 'Erro!', 
             text: err.message, 
@@ -446,6 +498,7 @@ const saveUserChanges = async (username, finalGroups) => {
     }
 };
 
+// Fecha o modal com animação suave. Ignora cliques internos ao conteúdo.
 export function closeModal(e) {
     const modal = document.getElementById('userModal');
     const content = document.getElementById('modalContent');
