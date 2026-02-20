@@ -19,6 +19,16 @@ function getAttributeValue(attributes, name) {
     return null;
 }
 
+// Decodifica strings do AD em formato hex escapado (\c3\a7 -> ç)
+function decodeADString(str) {
+    if (!str) return '';
+    try {
+        return decodeURIComponent(str.replace(/\\([0-9a-fA-F]{2})/g, '%$1'));
+    } catch (e) {
+        return str; 
+    }
+}
+
 // --- DESBLOQUEAR USUÁRIO ---
 exports.unlockUserByGUID = (username, adminUser, adminPass) => {
     return new Promise((resolve, reject) => {
@@ -731,20 +741,25 @@ const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
     // Usar o GUID do usuário para garantir o vínculo correto
     const userMagicDN = `<GUID=${userGUID}>`;
 
-    // FUNÇÃO INTERNA PARA MODIFICAR GRUPO
     const modifyGroupMembership = async (groupDN, action) => {
+        // Extrai o CN da string (seja ela um DN completo ou apenas o CN)
         const cnMatch = groupDN.match(/CN=([^,]+)/i);
         if (!cnMatch) return;
-        const groupCN = cnMatch[1].replace(/\\([0-9a-fA-F]{2})/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+
+        // Isso garante que a busca (cn=...) funcione perfeitamente no AD
+        const groupCN = decodeADString(cnMatch[1]); 
 
         return new Promise((resolve) => {
-            // Busca o GUID do grupo para evitar erro de acento no DN do grupo
+            // 🎯 3. Busca o GUID do grupo usando o CN limpo
             client.search(process.env.AD_BASE, {
-                filter: `(&(objectClass=group)(cn=${groupCN}))`,
+                filter: `(&(objectClass=group)(cn=${groupCN}))`, 
                 scope: 'sub',
                 attributes: ['objectGUID']
             }, (err, res) => {
-                if (err) return resolve();
+                if (err) {
+                    console.error(`❌ Erro na busca do grupo ${groupCN}:`, err.message);
+                    return resolve();
+                }
                 
                 let groupGUID = null;
                 let Constructor = null;
@@ -757,23 +772,27 @@ const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
 
                 res.on('end', () => {
                     if (!groupGUID) {
-                        console.error(`❌ Grupo não encontrado no AD: ${groupCN}`);
+                        console.error(`❌ Grupo não encontrado via CN: ${groupCN}`);
                         return resolve();
                     }
 
+                    // 🎯 4. Vínculo Final: GUID do Grupo <-> GUID do Usuário
                     const groupMagicDN = new Constructor();
                     groupMagicDN.toString = () => `<GUID=${groupGUID}>`;
 
                     const change = new ldap.Change({
                         operation: action,
-                        modification: { type: 'member', values: [userMagicDN] } // Adiciona/Remove via GUID do usuário
+                        modification: { 
+                            type: 'member', 
+                            values: [`<GUID=${userGUID}>`] 
+                        }
                     });
 
                     client.modify(groupMagicDN, change, (modErr) => {
                         if (modErr) {
-                            console.error(`⚠️ Erro ao ${action === 'add' ? 'adicionar' : 'remover'} no grupo ${groupCN}: ${modErr.message}`);
+                            console.error(`⚠️ Erro ao ${action} membro no grupo ${groupCN}:`, modErr.message);
                         } else {
-                            console.log(`✅ [${action.toUpperCase()}] Grupo: ${groupCN}`);
+                            console.log(`✅ [${action.toUpperCase()}] Grupo: ${groupCN} (via GUID)`);
                         }
                         resolve();
                     });
@@ -974,7 +993,7 @@ exports.getAllADGroups = (adminUser, adminPass) => {
             if (err) return reject(err);
 
             const opts = {
-                filter: '(objectClass=group)', // 🎯 Filtra apenas por objetos do tipo Grupo
+                filter: '(objectClass=group)', // Filtra apenas por objetos do tipo Grupo
                 scope: 'sub',
                 attributes: ['distinguishedName', 'cn']
             };
