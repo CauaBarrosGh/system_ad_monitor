@@ -52,14 +52,14 @@
             <div class="w-full sm:w-auto">
                 <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Data</label>
                 <input type="date" id="auditFilterDate" onchange="applyAuditFilters()"
-                    class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
+                    class="w-full sm:w-40 px-3 py-2 bg-white dark:text-slate-400 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
             </div>
 
             <!-- Filtro por tipo de ação -->
             <div class="w-full sm:w-auto">
                 <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Tipo de Ação</label>
                 <select id="auditFilterAction" onchange="applyAuditFilters()"
-                    class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
+                    class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 dark:text-slate-400 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
                     <option value="">Todas</option>
                     <option value="CADASTRO USUÁRIO">Cadastro Usuário</option>
                     <option value="DESBLOQUEIO">Desbloqueio</option>
@@ -84,7 +84,7 @@
             <div class="w-full sm:w-auto">
                 <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Status</label>
                 <select id="auditFilterStatus" onchange="applyAuditFilters()"
-                    class="w-full sm:w-32 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
+                    class="w-full sm:w-32 px-3 py-2 bg-white dark:bg-slate-900 dark:text-slate-400 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
                     <option value="">Todos</option>
                     <option value="SUCESSO">Sucesso</option>
                     <option value="ERRO">Erro</option>
@@ -118,7 +118,7 @@
 
                         <!-- Coluna Data/Hora -->
                         <th class="px-6 py-4 w-20 align-middle">
-                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                            <div class="flex items-center gap-2 text-xs dark:text-slate-400 font-bold uppercase">
                                 <i data-lucide="calendar" class="w-4 h-4 text-slate-500"></i>
                                 Data/Hora
                             </div>
@@ -126,7 +126,7 @@
 
                         <!-- Coluna Ação -->
                         <th class="px-6 py-4 w-45 align-middle">
-                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                            <div class="flex items-center gap-2 text-xs dark:text-slate-400 font-bold uppercase">
                                 <i data-lucide="activity" class="w-4 h-4 text-slate-500"></i>
                                 Ação
                             </div>
@@ -134,7 +134,7 @@
 
                         <!-- Coluna Executor -->
                         <th class="px-6 py-4 w-50 align-middle">
-                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                            <div class="flex items-center gap-2 text-xs dark:text-slate-400 font-bold uppercase">
                                 <i data-lucide="user-check" class="w-4 h-4 text-slate-500"></i>
                                 Executor (Admin)
                             </div>
@@ -142,7 +142,7 @@
 
                         <!-- Coluna Usuário alvo -->
                         <th class="px-6 py-4 w-40 align-middle">
-                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                            <div class="flex items-center gap-2 text-xs dark:text-slate-400 font-bold uppercase">
                                 <i data-lucide="target" class="w-4 h-4 text-slate-500"></i>
                                 Usuário
                             </div>
@@ -150,7 +150,7 @@
 
                         <!-- Coluna Status -->
                         <th class="px-6 py-4 w-24 align-middle">
-                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                            <div class="flex items-center gap-2 text-xs dark:text-slate-400 font-bold uppercase">
                                 <i data-lucide="check-circle" class="w-4 h-4 text-slate-500"></i>
                                 Status
                             </div>
@@ -158,7 +158,7 @@
 
                         <!-- Coluna Detalhes -->
                         <th class="px-6 py-4 align-middle">
-                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                            <div class="flex items-center gap-2 text-xs dark:text-slate-400 font-bold uppercase">
                                 <i data-lucide="file-text" class="w-4 h-4 text-slate-500"></i>
                                 Detalhes Técnicos
                             </div>
