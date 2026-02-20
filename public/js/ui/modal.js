@@ -197,7 +197,7 @@ export async function openUserModal(username) {
             // Rodapé do modo de edição (Cancelar/Salvar)
             footer.innerHTML = `
                 <button id="btn-cancel-edit" class="px-4 py-2 text-xs font-medium text-slate-500">Cancelar</button>
-                <button id="btn-save-edit" class="w-[180px] h-9 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2">Salvar Alterações</button>
+                <button id="btn-save-edit" class="w-[180px] h-9 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"><i data-lucide="save" class="w-4 h-4"></i>Salvar Alterações</button>
             `;
 
             updateGroupsUI();
@@ -298,11 +298,14 @@ const saveUserChanges = async (username, finalGroups) => {
             // Feedback de sucesso rápido
             await Swal.fire({
                 title: 'Sucesso!',
+                text: 'Alterado atributos do usuário!',
                 icon: 'success',
                 timer: 1000,
                 showConfirmButton: false,
                 heightAuto: false,
                 scrollbarPadding: false, 
+                background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#fff',
+                color: document.documentElement.classList.contains('dark') ? '#f1f5f9' : '#1e293b'
             });
 
             // Fecha modal e atualiza seções que dependem do backend
@@ -315,7 +318,8 @@ const saveUserChanges = async (username, finalGroups) => {
             throw new Error(error.error || 'Erro ao salvar alterações');
         }
     } catch (err) {
-        Swal.fire({ title: 'Erro!', text: err.message, icon: 'error', heightAuto: false, scrollbarPadding: false });
+        Swal.fire({ title: 'Erro!', text: err.message, icon: 'error', heightAuto: false, scrollbarPadding: false,background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#fff',
+        color: document.documentElement.classList.contains('dark') ? '#f1f5f9' : '#1e293b' });
         saveBtn.disabled = false;
         saveBtn.className = "h-9 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all";
         saveBtn.innerHTML = `<i data-lucide="save" class="w-4 h-4"></i> Salvar Alterações`;
