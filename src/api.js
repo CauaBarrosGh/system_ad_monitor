@@ -13,7 +13,7 @@ const app = express();
 
 // CORS
 app.use(cors({
-    origin: true, //Aceita qualquer origem e permite login
+    origin: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
@@ -52,7 +52,7 @@ app.get('/login.html', (req, res) => {
     res.sendFile(path.join(__dirname, '../public/html/login.html'));
 });
 
-// 3. API Routes (Backend)
+// API Routes (Backend)
 app.use(routes);
 
 // Dashboard (Protegido)

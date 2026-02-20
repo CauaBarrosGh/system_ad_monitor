@@ -1,5 +1,7 @@
+// Variavel de conexão com o banco
 const connectDB = require('../config/database');
 
+// Inserir logs no banco
 exports.logAction = async (action, executor, target, status, details = '') => {
     try {
         const pool = await connectDB();
@@ -15,6 +17,7 @@ exports.logAction = async (action, executor, target, status, details = '') => {
     }
 };
 
+// Ler os logs do banco
 exports.getLogs = async () => {
     try {
         const pool = await connectDB();

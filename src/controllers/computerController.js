@@ -6,7 +6,7 @@ exports.deleteComputer = async (req, res) => {
     const { computerName } = req.params;
     const sessionUser = req.session?.user;
 
-    // 🔒 1. Trava de segurança: Garante que o usuário tem uma sessão viva com senha
+    // Trava de segurança: Garante que o usuário tem uma sessão viva com senha
     if (!sessionUser || !sessionUser.password) {
         return res.status(401).json({ error: 'Sessão expirada. Faça login novamente.' });
     }
@@ -20,15 +20,15 @@ exports.deleteComputer = async (req, res) => {
     try {
         console.log(`🗑️ [CONTROLLER] Excluindo máquina: ${computerName} (Solicitado por: ${executor})`);
 
-        // 🔑 2. Passamos as credenciais de quem clicou no botão para o Service
+        // Passamos as credenciais de quem clicou no botão para o Service
         const result = await ldapService.deleteComputer(computerName, sessionUser.username, sessionUser.password);
 
-        // 3. Apaga do Banco local
+        // Apaga do Banco local
         const pool = await connectDB();
         await pool.execute('DELETE FROM computers_ad WHERE hostname = ?', [computerName]);
         console.log('✅ Removido do banco de dados local com sucesso.');
 
-        // 4. Log de Auditoria
+        // Log de Auditoria
         await logger.logAction(
             'EXCLUSÃO COMPUTADOR',
             executor,

@@ -1,3 +1,4 @@
+// CONGIFURAÇÃO DO ACIVE DIRECTORY (AD)
 module.exports = {
     url: process.env.AD_URL,
     baseDN: process.env.AD_BASE,

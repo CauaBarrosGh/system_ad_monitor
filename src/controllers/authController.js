@@ -2,6 +2,7 @@ const ActiveDirectory = require('activedirectory2');
 const adConfig = require('../config/adConfig');
 const { ALLOWED_OUS, DOMINIO_PADRAO } = require('../config/constants');
 
+// Auth de login
 exports.login = (req, res) => {
     let { username, password } = req.body;
 
@@ -53,6 +54,7 @@ exports.login = (req, res) => {
     });
 };
 
+// Logout
 exports.logout = (req, res) => {
     req.session.destroy(() => {
         res.redirect('/html/login.html');

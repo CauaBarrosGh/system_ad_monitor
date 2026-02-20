@@ -2,6 +2,8 @@ const ldapService = require('../services/ldapService');
 const loggerService = require('../services/loggerService');
 const connectDB = require('../config/database');
 const collector = require('../collector')
+
+// Desbloquear usuário
 exports.unlockUser = async (req, res) => {
     const { username } = req.params;
     const sessionUser = req.session?.user;
@@ -17,7 +19,7 @@ exports.unlockUser = async (req, res) => {
         // Passamos as credenciais de quem clicou no botão para o Service
         await ldapService.unlockUserByGUID(username, sessionUser.username, sessionUser.password);
 
-        // --- LOG DE SUCESSO ---
+        // log sucesso
         await loggerService.logAction(
             'DESBLOQUEIO',
             adminName,
@@ -30,7 +32,7 @@ exports.unlockUser = async (req, res) => {
     } catch (error) {
         console.error(`[ERRO] Falha ao desbloquear ${username}:`, error.message);
 
-        // --- LOG DE ERRO ---
+        // log erro
         await loggerService.logAction(
             'DESBLOQUEIO', 
             adminName, 
@@ -46,6 +48,7 @@ exports.unlockUser = async (req, res) => {
     }
 };
 
+// Desativar usuário
 exports.disableUser = async (req, res) => {
     const { username } = req.params;
     const sessionUser = req.session?.user;
@@ -62,7 +65,7 @@ exports.disableUser = async (req, res) => {
         
         try {
             const pool = await connectDB();
-            // --- APAGA REGISTRO DO BANCO---
+            // apaga do banco
             await pool.execute(
                 'DELETE FROM users_ad WHERE username = ? LIMIT 1', 
                 [username]
@@ -72,7 +75,7 @@ exports.disableUser = async (req, res) => {
             console.error("⚠️ Erro ao limpar banco local:", dbErr.message);
         }
 
-        // --- LOG DE SUCESSO ---
+        // log sucesso
         await loggerService.logAction(
             'DESLIGAMENTO', 
             adminName, 
@@ -84,7 +87,7 @@ exports.disableUser = async (req, res) => {
         res.json(result);
 
     } catch (err) {
-        // --- LOG DE ERRO ---
+        // log erro
         await loggerService.logAction(
             'DESLIGAMENTO', 
             adminName, 
@@ -98,6 +101,7 @@ exports.disableUser = async (req, res) => {
     }
 };
 
+// Deletar usuário
 exports.deleteDisabledUser = async (req, res) => {
     const { username } = req.params;
     const sessionUser = req.session?.user;
@@ -146,6 +150,7 @@ exports.deleteDisabledUser = async (req, res) => {
     }
 };
 
+// Criar usuário
 exports.createUser = async (req, res) => {
     const sessionUser = req.session?.user;
     
@@ -199,7 +204,7 @@ exports.createUser = async (req, res) => {
             console.error('⚠️ Aviso: Usuário criado no AD, mas falha ao sincronizar painel:', syncErr.message);
         }
 
-        // 5. Log de Auditoria
+        // Log de Auditoria
         try {
             await loggerService.logAction('CADASTRO USUÁRIO', adminName, targetUserLogon, 'SUCESSO', 'Cadastrado Usuário');
         } catch (logErr) { console.error(logErr); }
@@ -215,7 +220,8 @@ exports.createUser = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
-// Função para buscar os dados que vão preencher o modal de edição
+
+// Busca os dados que vão preencher o modal de edição
 exports.getUserData = async (req, res) => {
     try {
         const { username } = req.params;
@@ -233,6 +239,7 @@ exports.getUserData = async (req, res) => {
     }
 };
 
+// Edição do usuário
 exports.editUser = async (req, res) => {
     const { username } = req.params;
     const { username: adminU, password: adminP } = req.session.user;

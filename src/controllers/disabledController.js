@@ -1,5 +1,6 @@
 const connectDB = require('../config/database');
 
+// Coleta os usuarios desativados
 exports.getDisabledUsers = async (req, res) => {
   try {
     const pool = await connectDB();

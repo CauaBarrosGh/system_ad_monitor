@@ -112,6 +112,7 @@ function getObjectByDN(client, dn, attributes) {
     });
 }
 
+// Coleta o grupo
 async function crawlGroup(client, groupDN, parentGroupName) {
     if (visitedGroups.has(groupDN)) return;
     visitedGroups.add(groupDN);
@@ -141,6 +142,7 @@ async function crawlGroup(client, groupDN, parentGroupName) {
     }
 }
 
+// Coleta o departamento
 async function buildDepartmentMap(client) {
     console.log(`🧩 Mapeando hierarquia de "${NOME_GRUPO_RAIZ}"...`);
     visitedGroups.clear(); userGroupMap.clear();
@@ -157,11 +159,10 @@ async function buildDepartmentMap(client) {
     console.log(`✅ Mapeamento concluído.`);
 }
 
-// --- FETCHERS COM LÓGICA DE EXCLUSÃO (LIMPEZA) ---
-
+// Coleta os usuarios
 async function fetchUsers(client, dbConnection) {
     const GRUPO_ALVO_DN = 'CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br';
-    const foundUsernames = []; // 🎯 Rastrear quem está no AD
+    const foundUsernames = []; 
 
     return new Promise((resolve, reject) => {
         const opts = {
@@ -179,7 +180,7 @@ async function fetchUsers(client, dbConnection) {
                 const username = cleanValue(getAttr(entry, 'sAMAccountName'));
                 if (!username) return;
 
-                foundUsernames.push(username); // 🎯 Registra que o usuário existe
+                foundUsernames.push(username);
 
                 const displayName = cleanValue(getAttr(entry, 'displayName')) || username;
                 const mail = cleanValue(getAttr(entry, 'mail'));
@@ -231,7 +232,6 @@ async function fetchUsers(client, dbConnection) {
             });
 
             res.on('end', async () => {
-                // 🎯 LÓGICA DE EXCLUSÃO DEFINITIVA
                 if (foundUsernames.length > 0) {
                     try {
                         const [result] = await dbConnection.query('DELETE FROM users_ad WHERE username NOT IN (?)', [foundUsernames]);
@@ -246,6 +246,7 @@ async function fetchUsers(client, dbConnection) {
     });
 }
 
+// Coleta os computadores
 async function fetchComputers(client, dbConnection) {
     console.log('💻 [COMPUTADORES] Coletando...');
     const foundHostnames = [];
@@ -285,6 +286,7 @@ async function fetchComputers(client, dbConnection) {
     });
 }
 
+// Coleta os usuarios desativados
 async function fetchDisabledUsers(client, dbConnection) {
     console.log('🚫 [DESATIVADOS] Coletando...');
     const foundDisabled = [];

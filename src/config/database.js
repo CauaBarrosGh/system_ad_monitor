@@ -1,3 +1,5 @@
+// CONFIGURAÇÃO DO BANCO DE DADOS MYSQL
+
 const mysql = require('mysql2/promise');
 
 const DB_CONFIG = {

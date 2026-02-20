@@ -1,5 +1,6 @@
 const loggerService = require('../services/loggerService');
 
+// Coletar os logs do loggerService
 exports.getAuditLogs = async (req, res) => {
     try {
         const logs = await loggerService.getLogs();

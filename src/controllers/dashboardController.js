@@ -1,5 +1,6 @@
 const connectDB = require('../config/database');
 
+// Coleta os KPIS do banco
 exports.getKPIs = async (req, res) => {
     try {
         const db = await connectDB();
@@ -8,6 +9,7 @@ exports.getKPIs = async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 };
 
+// Coleta os computadores do banco
 exports.getComputers = async (req, res) => {
     try {
         const db = await connectDB();
@@ -15,7 +17,7 @@ exports.getComputers = async (req, res) => {
         res.json(rows);
     } catch (e) { res.status(500).json({ error: e.message }); }
 };
-
+// Coleta os usuarios do banco
 exports.getAllUsers = async (req, res) => {
     try {
         const db = await connectDB();
@@ -23,7 +25,7 @@ exports.getAllUsers = async (req, res) => {
         res.json(rows.map(u => ({ ...u, risk_factors: u.risk_factors ? JSON.parse(u.risk_factors) : [] })));
     } catch (e) { res.status(500).json({ error: e.message }); }
 };
-
+// Coleta os riscos do banco
 exports.getSecurityRisks = async (req, res) => {
     try {
         const db = await connectDB();
