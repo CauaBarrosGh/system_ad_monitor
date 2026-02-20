@@ -49,4 +49,7 @@ router.post('/api/users', requireAuth, userController.createUser);
 router.get('/api/users/:username/details', requireAuth, userController.getUserData);
 router.put('/api/users/:username', requireAuth, userController.editUser);
 
+// rota dos grupos
+router.get('/api/groups', requireAuth, dashboardController.getAllGroups);
+
 module.exports = router;

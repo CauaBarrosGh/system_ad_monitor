@@ -965,3 +965,39 @@ exports.getUserDetails = (username, adminUser, adminPass) => {
         });
     });
 };
+
+exports.getAllADGroups = (adminUser, adminPass) => {
+    return new Promise((resolve, reject) => {
+        const client = ldap.createClient({ url: process.env.AD_URL, tlsOptions: { rejectUnauthorized: false } });
+        
+        client.bind(adminUser, adminPass, (err) => {
+            if (err) return reject(err);
+
+            const opts = {
+                filter: '(objectClass=group)', // 🎯 Filtra apenas por objetos do tipo Grupo
+                scope: 'sub',
+                attributes: ['distinguishedName', 'cn']
+            };
+
+            client.search(process.env.AD_BASE, opts, (sErr, sRes) => {
+                if (sErr) return reject(sErr);
+                
+                const groups = [];
+                sRes.on('searchEntry', (entry) => {
+                    groups.push({
+                        dn: entry.objectName.toString(),
+                        cn: entry.attributes.find(a => a.type.toLowerCase() === 'cn')?.values[0] || 'Sem Nome'
+                    });
+                });
+
+                sRes.on('end', () => {
+                    client.unbind();
+                    // Ordena alfabeticamente para o seletor ficar organizado
+                    resolve(groups.sort((a, b) => a.cn.localeCompare(b.cn)));
+                });
+                
+                sRes.on('error', (e) => { client.unbind(); reject(e); });
+            });
+        });
+    });
+};

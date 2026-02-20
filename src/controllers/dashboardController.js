@@ -1,4 +1,5 @@
 const connectDB = require('../config/database');
+const ldapService = require('../services/ldapService');
 
 // Coleta os KPIS do banco
 exports.getKPIs = async (req, res) => {
@@ -32,4 +33,15 @@ exports.getSecurityRisks = async (req, res) => {
         const [rows] = await db.execute(`SELECT username, display_name, role, department, risk_score, risk_factors, pwd_last_set, last_logon, is_enabled FROM users_ad WHERE risk_score > 0 ORDER BY risk_score DESC`);
         res.json(rows.map(r => ({ ...r, risk_factors: r.risk_factors ? JSON.parse(r.risk_factors) : [] })));
     } catch (e) { res.status(500).json({ error: e.message }); }
+};
+// Busca todos os grupos para o seletor do modal
+exports.getAllGroups = async (req, res) => {
+    try {
+        const { username, password } = req.session.user;
+        const groups = await ldapService.getAllADGroups(username, password);
+        res.json(groups);
+    } catch (error) {
+        console.error('❌ Erro ao buscar grupos do AD:', error.message);
+        res.status(500).json({ error: 'Não foi possível carregar a lista de grupos.' });
+    }
 };

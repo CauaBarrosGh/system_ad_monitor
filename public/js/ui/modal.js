@@ -57,36 +57,39 @@ export async function openUserModal(username) {
             <p class="text-sm font-bold text-slate-500 uppercase tracking-widest">Consultando AD...</p>
         </div>`;
     
-    // Exibe modal com animação inicial
     modal.classList.remove('hidden');
     modal.classList.add('flex');
     if (window.lucide) lucide.createIcons();
 
     try {
-        // Consulta detalhes do usuário no backend
-        const response = await fetch(`/api/users/${username}/details`);
-        const adData = await response.json();
+        // BUSCA DETALHES + TODOS OS GRUPOS DISPONÍVEIS NO AD
+        const [userRes, groupsRes] = await Promise.all([
+            fetch(`/api/users/${username}/details`),
+            fetch('/api/groups') 
+        ]);
+
+        const adData = await userRes.json();
+        let allADGroups = await groupsRes.json();
+
+        if (!Array.isArray(allADGroups)) {
+            console.error('⚠️ Lista de grupos não retornou um array:', allADGroups);
+            allADGroups = []; 
+        }
+
         const details = adData.details;
 
-        // Renderiza o "modo visualização" com dados do AD e do store
         const renderViewMode = () => {
             const c = ROLE_COLORS[userStore.role] || ROLE_COLORS.COLABORADOR;
             const timeStr = calcTimeInCompany(userStore.data_inicio);
-            
-            // OU decodificada para leitura humana
             const ouRaw = details.dn ? details.dn.split(',').slice(1).join(',') : '-';
             const ouClean = decodeADString(ouRaw);
-
-            // Extrai CN do gestor
             const managerClean = details.manager ? details.manager.match(/CN=([^,]+)/)?.[1] : 'Não definido';
             
-            // Lista de grupos (CN)
             const groupsHtml = details.groups.map(g => {
                 const cn = g.match(/CN=([^,]+)/i)?.[1] || g;
                 return `<span class="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 mr-2 mb-2">${cn}</span>`;
             }).join('');
 
-            // InnerHTML com dados do AD: considerar escapeHtml() se houver risco de entrada malformada
             body.innerHTML = `
                 <div class="col-span-2 flex items-center gap-5 mb-4">
                     <div class="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold border-2" style="background-color: ${c.bg}; color: ${c.text}; border-color: ${c.bg}">
@@ -98,21 +101,18 @@ export async function openUserModal(username) {
                         <div class="mt-1">${getRoleBadge(userStore.role)}</div>
                     </div>
                 </div>
-
                 <div class="space-y-4">
                     <div><p class="text-xs font-bold text-slate-400 uppercase">Descrição</p><p class="text-sm text-slate-700 dark:text-slate-300 font-medium">${details.description || '-'}</p></div>
                     <div><p class="text-xs font-bold text-slate-400 uppercase">Departamento</p><p class="text-sm text-slate-700 dark:text-slate-300 font-medium">${details.department || '-'}</p></div>
                     <div><p class="text-xs font-bold text-slate-400 uppercase">Senioridade</p><p class="text-sm text-slate-700 dark:text-slate-300 font-medium">${details.departmentNumber || '-'}</p></div>
                     <div><p class="text-xs font-bold text-slate-400 uppercase">Gestor</p><p class="text-sm text-slate-700 dark:text-slate-300 font-medium">${managerClean}</p></div>
                 </div>
-
                 <div class="space-y-4">
                     <div><p class="text-xs font-bold text-slate-400 uppercase">Status</p><p class="text-sm ${userStore.is_enabled ? 'text-green-600' : 'text-red-500'} font-bold">${userStore.is_enabled ? '✅ ATIVO' : '⛔ DESATIVADO'}</p></div>
                     <div><p class="text-xs font-bold text-slate-400 uppercase">Tempo de Empresa</p><p class="text-sm text-slate-700 dark:text-slate-300 font-medium">${timeStr}</p></div>
                     <div><p class="text-xs font-bold text-slate-400 uppercase">Último Logon</p><p class="text-sm text-slate-700 dark:text-slate-300 font-medium">${formatDate(userStore.last_logon)}</p></div>
                     <div><p class="text-xs font-bold text-slate-400 uppercase">Unidade Organizacional (OU)</p><p class="text-[11px] text-slate-600 dark:text-slate-400 font-mono break-all leading-tight">${ouClean}</p></div>
                 </div>
-
                 <div class="col-span-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
                     <p class="text-xs font-bold text-slate-400 uppercase mb-3">Membro dos Grupos</p>
                     <div class="flex flex-wrap max-h-28 overflow-y-auto custom-scrollbar">
@@ -121,7 +121,6 @@ export async function openUserModal(username) {
                 </div>
             `;
 
-            // Ações de rodapé (editar/desbloquear/desativar)
             footer.innerHTML = `
                 <div class="flex items-center space-x-2">
                     <button id="btn-edit" class="p-2 bg-slate-100 dark:bg-slate-800 rounded-lg text-slate-500 hover:text-blue-500 transition shadow-sm"><i data-lucide="edit-3" class="w-4 h-4"></i></button>
@@ -130,43 +129,75 @@ export async function openUserModal(username) {
                 </div>
             `;
 
-            // Handlers dos botões do rodapé
             footer.querySelector('#btn-edit').onclick = () => enterEditMode(username, details);
             footer.querySelector('#btn-unlock').onclick = () => unlockUserAccount(username);
             footer.querySelector('#btn-disable').onclick = () => confirmDisable(username, details.displayName);
             if (window.lucide) lucide.createIcons();
         };
 
-        // Modo de edição: permite alterar campos e gerenciar grupos
         const enterEditMode = (username, current) => {
             let selectedGroups = [...current.groups];
 
-            // Renderiza mini-chips dos grupos selecionados e permite remover
             const updateGroupsUI = () => {
                 const container = document.getElementById('edit-groups-container');
                 if (!container) return;
-                container.innerHTML = selectedGroups.map((g, index) => {
+
+                const chipsHtml = selectedGroups.map((g, index) => {
                     const cn = g.match(/CN=([^,]+)/i)?.[1] || g;
                     return `
-                        <div class="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-[10px] font-bold px-2 py-1 rounded border border-blue-100 dark:border-blue-800 mr-2 mb-2">
+                        <div class="flex items-center gap-1 bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-[10px] font-bold px-2 py-1 rounded border border-blue-100 dark:border-blue-800 mr-2 mb-2 group">
                             <span>${cn}</span>
-                            <button type="button" class="btn-remove-group hover:text-red-500" data-index="${index}"><i data-lucide="x" class="w-3 h-3"></i></button>
-                        </div>
-                    `;
+                            <button type="button" class="btn-remove-group hover:text-red-500 opacity-60 group-hover:opacity-100" data-index="${index}"><i data-lucide="x" class="w-3 h-3"></i></button>
+                        </div>`;
                 }).join('');
+
+                // 🎯 Botão de Adição dentro do Grid
+                container.innerHTML = `
+                    ${chipsHtml}
+                    <button type="button" id="trigger-group-selector" class="flex items-center gap-1 bg-slate-200 dark:bg-slate-800 text-slate-500 hover:bg-blue-600 hover:text-white text-[10px] font-bold px-3 py-1 rounded border border-dashed border-slate-400 dark:border-slate-700 transition-all mb-2">
+                        <i data-lucide="plus" class="w-3 h-3"></i> ADICIONAR GRUPO
+                    </button>
+                `;
                 
-                // Remoção de grupos via botão (atualiza UI local)
                 container.querySelectorAll('.btn-remove-group').forEach(btn => {
                     btn.onclick = (e) => {
-                        const idx = e.currentTarget.dataset.index;
-                        selectedGroups.splice(idx, 1);
+                        selectedGroups.splice(e.currentTarget.dataset.index, 1);
                         updateGroupsUI();
                     };
                 });
+
+                document.getElementById('trigger-group-selector').onclick = showGroupSelector;
                 if (window.lucide) lucide.createIcons();
             };
 
-            // InnerHTML populado com dados atuais: considerar escapeHtml() se origem externa
+            // 🎯 LÓGICA DO SELETOR (CAIXA DE SELEÇÃO)
+            const showGroupSelector = async () => {
+                if (allADGroups.length === 0) {
+                    return Swal.fire('Erro', 'Não foi possível carregar a lista de grupos.', 'error');
+                }
+                const { value: groupDN } = await Swal.fire({
+                    title: 'Adicionar ao Grupo',
+                    input: 'select',
+                    inputOptions: allADGroups.reduce((acc, g) => {
+                        acc[g.dn] = g.cn;
+                        return acc;
+                    }, {}),
+                    inputPlaceholder: 'Selecione um grupo do AD...',
+                    showCancelButton: true,
+                    confirmButtonText: 'Adicionar',
+                    confirmButtonColor: '#2563eb',
+                    heightAuto: false, 
+                    scrollbarPadding: false, 
+                    background: document.documentElement.classList.contains('dark') ? '#1e293b' : '#fff',
+                    color: document.documentElement.classList.contains('dark') ? '#f1f5f9' : '#1e293b'
+                });
+
+                if (groupDN && !selectedGroups.includes(groupDN)) {
+                    selectedGroups.push(groupDN);
+                    updateGroupsUI();
+                }
+            };
+
             body.innerHTML = `
                 <div class="col-span-2">
                     <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Nome de Exibição</label>
@@ -197,23 +228,21 @@ export async function openUserModal(username) {
                         <option value="Especialista">Especialista</option>
                     </select>
                 </div>
-                <div class="col-span-2 mt-2">
-                    <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Gerenciar Grupos</label>
-                    <div id="edit-groups-container" class="flex flex-wrap max-h-24 overflow-y-auto custom-scrollbar border border-dashed border-slate-200 dark:border-slate-700 p-2 rounded-lg">
+
+                <div class="col-span-2 mt-4">
+                    <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Gerenciar Grupos (Clique em + para adicionar)</label>
+                    <div id="edit-groups-container" class="flex flex-wrap max-h-40 overflow-y-auto custom-scrollbar bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-xl min-h-[60px]">
                     </div>
                 </div>
+
                 <div class="col-span-2">
                     <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Unidade Organizacional Alvo (OU)</label>
-                    <div class="relative">
-                        <input type="text" id="edit-ou" 
-                            class="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-500 overflow-x-auto" 
-                            value="${decodeADString(current.dn.split(',').slice(1).join(','))}" 
-                            readonly>
-                    </div>
+                    <input type="text" id="edit-ou" 
+                        class="w-full bg-slate-100 dark:bg-slate-900 border-none rounded-lg px-3 py-2 text-xs font-mono text-slate-500" 
+                        value="${decodeADString(current.dn.split(',').slice(1).join(','))}" readonly>
                 </div>
             `;
 
-            // Rodapé do modo de edição (Cancelar/Salvar)
             footer.innerHTML = `
                 <button id="btn-cancel-edit" class="px-4 py-2 text-xs font-medium text-slate-500">Cancelar</button>
                 <button id="btn-save-edit" class="w-[180px] h-9 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"><i data-lucide="save" class="w-4 h-4"></i>Salvar Alterações</button>
@@ -221,42 +250,26 @@ export async function openUserModal(username) {
 
             updateGroupsUI();
 
-            // Alteração de perfil aplica grupos padrão do mapa
             document.getElementById('edit-perfil').addEventListener('change', (e) => {
-                const perfilSelecionado = e.target.value;
-                const config = PERFIL_MAP[perfilSelecionado];
-                
+                const config = PERFIL_MAP[e.target.value];
                 if (config) {
-                    // Atualiza os grupos na memória
                     selectedGroups = [...config.groups];
                     updateGroupsUI();
-                    
-                    // ATUALIZA A OU NA TELA
                     const ouInput = document.getElementById('edit-ou');
-                    if (ouInput) {
-                        ouInput.value = config.targetOU;
-                        // Feedback visual de que mudou
-                        ouInput.classList.add('ring-2', 'ring-blue-500/20', 'bg-blue-50/50');
-                        setTimeout(() => ouInput.classList.remove('ring-2', 'ring-blue-500/20', 'bg-blue-50/50'), 1000);
-                    }
-                    console.log(`✅ Perfil ${perfilSelecionado}: Grupos e OU sincronizados no modal.`);
+                    if (ouInput) ouInput.value = config.targetOU;
                 }
             });
 
-            // Ações do rodapé no modo de edição
             footer.querySelector('#btn-cancel-edit').onclick = renderViewMode;
             footer.querySelector('#btn-save-edit').onclick = () => saveUserChanges(username, selectedGroups);
         };
 
-        // Primeiro renderiza a visão
         renderViewMode();
 
     } catch (err) {
-        // Exibe erro de backend/carregamento
         body.innerHTML = `<div class="col-span-2 py-10 text-center text-red-500 text-sm font-bold">${err.message}</div>`;
     }
 
-    // Animação de entrada do modal (fade/scale)
     setTimeout(() => {
         modal.classList.remove('opacity-0');
         content.classList.remove('scale-95');
