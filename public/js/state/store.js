@@ -1,29 +1,47 @@
 export const store = {
+  // Dados globais carregados do backend (cache em memória)
   globalUsers: [],
   globalComputers: [],
   globalSecurity: [],
   globalAudit: [],
   globalDisabled: [],
 
-  // flags de carregamento por aba
-  loaded: { overview:false, details:false, inventory:false, security:false, audit:false, disabled:false }, 
-  loadedAt: { overview:0, details:0, inventory:0, security:0, audit:0, disabled:0 }, 
+  // Controle de carregamento por aba (previne fetch desnecessário)
+  loaded: { 
+    overview: false, 
+    details: false, 
+    inventory: false, 
+    security: false, 
+    audit: false, 
+    disabled: false 
+  },
 
-  // sorting users
-  userSortDir: 1,
-  userLastCol: '',
+  // Armazena timestamp do último carregamento por aba (para refresh inteligente)
+  loadedAt: { 
+    overview: 0, 
+    details: 0, 
+    inventory: 0, 
+    security: 0, 
+    audit: 0, 
+    disabled: 0 
+  },
 
-  // sorting computers
+  // Estado de ordenação da tabela de usuários
+  userSortDir: 1,    
+  userLastCol: '',    
+
+  // Estado de ordenação de computadores
   compSortDir: 1,
   compLastCol: '',
 
+  // Ordenação de usuários desativados
   disabledSortDir: 1,
   disabledLastCol: '', 
   
-  // filters disabled
+  // Filtros da aba "Disabled"
   isDisabledLegacyFilter: false,
 
-  // filters inventory
+  // Filtros da aba "Inventário"
   currentTypeFilter: 'all',
   isSixMonthsFilter: false,
 };

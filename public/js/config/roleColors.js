@@ -1,3 +1,4 @@
+// Cores por role
 export const ROLE_COLORS = {
   DIRETORIA: { bg: '#f3e8ff', text: '#7e22ce', chart: '#9333ea' },
   SI: { bg: '#fee2e2', text: '#b91c1c', chart: '#ef4444' },
