@@ -2,18 +2,21 @@ import { store } from "../state/store.js";
 import { calcTimeInCompany, getRoleBadge } from "../utils/format.js";
 import { ROLE_COLORS } from "../config/roleColors.js";
 
+// Renderiza os cards do diretório (grid) no container #details-grid
 export function renderDetailsGrid(list) {
   const grid = document.getElementById('details-grid');
   if (!grid) return;
 
+  // Estado vazio
   if (list.length === 0) {
     grid.innerHTML = `<p class="text-gray-400 dark:text-slate-500 col-span-full text-center py-10">Ninguém encontrado.</p>`;
     return;
   }
 
+  // Monta cada card de colaborador com dados principais
   grid.innerHTML = list.map((u) => {
-    const c = ROLE_COLORS[u.role] || ROLE_COLORS.COLABORADOR;
-    const timeStr = calcTimeInCompany(u.data_inicio);
+    const c = ROLE_COLORS[u.role] || ROLE_COLORS.COLABORADOR; // cores por função
+    const timeStr = calcTimeInCompany(u.data_inicio);         // "X anos e Y meses"
 
     return `
       <div class="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 p-5 hover:shadow-md transition-all group relative overflow-hidden cursor-pointer"
@@ -51,9 +54,11 @@ export function renderDetailsGrid(list) {
       </div>`;
   }).join('');
 
+  // Re-renderiza os ícones após injetar HTML
   lucide.createIcons();
 }
 
+// Filtra por termo (nome/username) e por departamento; re-renderiza grid
 export function filterDetails() {
   const term = document.getElementById('detailsSearch')?.value?.toLowerCase() ?? '';
   const dept = document.getElementById('deptFilter')?.value ?? '';
@@ -69,6 +74,7 @@ export function filterDetails() {
   renderDetailsGrid(filtered);
 }
 
+// Popula o select de departamentos (#deptFilter) com valores únicos, ordenados
 export function populateDeptFilter(users) {
   const depts = [...new Set(users.map((u) => u.department).filter(Boolean))].sort();
   const select = document.getElementById('deptFilter');

@@ -5,7 +5,7 @@ export async function triggerManualSync() {
     const btn = document.getElementById('btn-sync-now');
     const textSpan = document.getElementById('text-sync');
 
-    // 1. Bloqueia o botão e muda o texto para avisar que começou
+    // Bloqueia o botão e muda o texto para avisar que começou
     if (btn) btn.disabled = true;
     if (textSpan) textSpan.innerText = "Sincronizando...";
 
@@ -36,7 +36,7 @@ export async function triggerManualSync() {
         // Atualiza a tela
         await refreshAfterUserAction();
 
-        // 2. Avisa que acabou (Visual)
+        // Avisa que acabou (Visual)
         if (textSpan) textSpan.innerText = "Concluído!";
 
     } catch (error) {
@@ -44,7 +44,7 @@ export async function triggerManualSync() {
         alert("Erro na sincronização: " + error.message);
         if (textSpan) textSpan.innerText = "Erro!";
     } finally {
-        // 3. Destrava o botão imediatamente
+        // Destrava o botão imediatamente
         if (btn) btn.disabled = false;
         
         // Espera 2 segundos e volta o texto para o original

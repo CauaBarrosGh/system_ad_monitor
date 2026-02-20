@@ -11,7 +11,7 @@ import {
 export function applyDisabledFilters() {
   let data = [...store.globalDisabled];
 
-  // 1. Filtro de Texto (Search Input)
+  // Filtro de Texto (Search Input)
   const searchInput = document.getElementById("disabledSearch");
   if (searchInput && searchInput.value.trim() !== "") {
     const term = searchInput.value.toLowerCase();
@@ -22,7 +22,7 @@ export function applyDisabledFilters() {
     });
   }
 
-  // 2. Filtro "Legado" (> 5 Anos)
+  // Filtro "Legado" (> 5 Anos)
   if (store.isDisabledLegacyFilter) {
     data = data.filter((u) => {
       const d = parseDisabledDateFromDescription(u.description);
@@ -30,7 +30,7 @@ export function applyDisabledFilters() {
     });
   }
 
-  // 3. Ordenação
+  // Ordenação
   if (store.disabledLastCol) {
     const col = store.disabledLastCol;
     const dir = store.disabledSortDir;
@@ -40,6 +40,7 @@ export function applyDisabledFilters() {
 
       // Extrai valores baseados na coluna
       if (col === 'name') {
+        // Ordena por display_name (fallback para username)
         valA = (a.display_name || a.username || "").toLowerCase();
         valB = (b.display_name || b.username || "").toLowerCase();
       } else {
@@ -70,6 +71,7 @@ export function renderDisabledTable(list) {
   const body = document.getElementById("disabled-table-body");
   if (!body) return;
 
+  // Estado vazio com mensagem amigável
   if (!list || list.length === 0) {
     body.innerHTML = `
       <tr>
@@ -81,12 +83,14 @@ export function renderDisabledTable(list) {
     return;
   }
 
+  // Monta cada linha da tabela com KPIs e ação de exclusão
   body.innerHTML = list.map((u) => {
     const d = parseDisabledDateFromDescription(u.description);
     const dias = daysSince(d);
     const expira = addFiveYears(d);
     const over5 = isOverFiveYears(d);
 
+    // Badge por categoria: LEGADO / RECENTE / SEM DATA
     const badge = d
       ? over5
         ? `<span class="inline-flex px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-300 border border-red-200 dark:border-red-900">LEGADO</span>`
@@ -121,7 +125,7 @@ export function renderDisabledTable(list) {
   }).join("");
 }
 
-// --- Ações de Controle (Exportar para Main) ---
+// Ações de Controle (Exportar para Main)
 
 export function toggleLegacyFilter() {
   store.isDisabledLegacyFilter = !store.isDisabledLegacyFilter;
@@ -140,7 +144,7 @@ export function sortDisabledTable(colName) {
 
 // --- Exclusão Definitiva ---
 export async function confirmDeleteDisabled(username) {
-  // 1. Confirmação Visual
+  // Confirmação Visual Swal
   const result = await Swal.fire({
     title: 'EXCLUSÃO DEFINITIVA',
     html: `Tem certeza que deseja apagar <b>${username}</b>?<br><span class="text-xs text-red-500">Essa ação remove do AD e não pode ser desfeita!</span>`,
@@ -158,7 +162,7 @@ export async function confirmDeleteDisabled(username) {
 
   if (!result.isConfirmed) return;
 
-  // 2. Loading
+  // Loading
   Swal.fire({
     title: 'Apagando...',
     text: 'Comunicando com o Active Directory',
@@ -171,7 +175,7 @@ export async function confirmDeleteDisabled(username) {
   });
 
   try {
-    // 3. Chamada para a API
+    // Chamada para a API
     const res = await fetch(`/api/disabled/${username}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' }
@@ -180,7 +184,7 @@ export async function confirmDeleteDisabled(username) {
     const data = await res.json();
 
     if (res.ok) {
-      // 4. Sucesso
+      // Sucesso
       await Swal.fire({
         icon: 'success',
         title: 'Excluído!',
@@ -215,7 +219,7 @@ export async function confirmDeleteDisabled(username) {
 
 // Helpers Visuais
 function updateDisabledIcons() {
-  // 1. Atualiza botão de filtro
+  // Atualiza botão de filtro (estilo ativo/inativo)
   const btn = document.getElementById("btn-filter-legacy");
   if (btn) {
     if (store.isDisabledLegacyFilter) {
@@ -227,7 +231,7 @@ function updateDisabledIcons() {
     }
   }
 
-  // 2. Atualiza setinhas da tabela
+  // Atualiza setinhas da tabela (reset e marca ativa)
   document.querySelectorAll(".sort-icon-disabled").forEach(el => el.setAttribute("data-lucide", "chevrons-up-down"));
   
   if (store.disabledLastCol) {

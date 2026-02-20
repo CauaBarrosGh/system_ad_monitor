@@ -1,6 +1,6 @@
 import { store } from "../state/store.js";
 
-// 1. CARREGAR DADOS (Fetch)
+// CARREGAR DADOS (Fetch)
 export async function loadAuditLogs() {
   // Renderiza Loading
   renderAuditLoading();
@@ -21,22 +21,22 @@ export async function loadAuditLogs() {
   }
 }
 
-// 2. FILTRAR DADOS (Logic)
+// FILTRAR DADOS (Logic)
 export function applyAuditFilters() {
   // Se não tem dados, não faz nada
   if (!store.globalAudit) return;
 
   let filtered = [...store.globalAudit];
 
-  // A. Pega valores dos Inputs
+  // Pega valores dos Inputs
   const dateInput = document.getElementById('auditFilterDate')?.value;
   const actionInput = document.getElementById('auditFilterAction')?.value;
   const searchInput = document.getElementById('auditFilterSearch')?.value?.toLowerCase();
   const statusInput = document.getElementById('auditFilterStatus')?.value;
 
-  // B. Aplica Filtros
+  // Aplica Filtros
   filtered = filtered.filter(log => {
-    // 1. Filtro de Data (Compara YYYY-MM-DD)
+    // Filtro de Data (Compara YYYY-MM-DD)
     if (dateInput) {
       // O log.timestamp vem como ISO (ex: 2023-10-05T14:00:00.000Z).
       // Pegamos só os 10 primeiros caracteres para comparar a data.
@@ -44,13 +44,13 @@ export function applyAuditFilters() {
       if (logDate !== dateInput) return false;
     }
 
-    // 2. Filtro de Ação (Exato)
+    // Filtro de Ação (Exato)
     if (actionInput && log.action !== actionInput) return false;
 
-    // 3. Filtro de Status (Exato)
+    // Filtro de Status (Exato)
     if (statusInput && log.status !== statusInput) return false;
 
-    // 4. Filtro de Texto (Executor OU Alvo)
+    // Filtro de Texto (Executor OU Alvo)
     if (searchInput) {
       const executor = (log.executor || "").toLowerCase();
       const target = (log.target || "").toLowerCase();
@@ -61,11 +61,11 @@ export function applyAuditFilters() {
     return true;
   });
 
-  // C. Renderiza a lista filtrada
+  // Renderiza a lista filtrada
   renderAuditTable(filtered);
 }
 
-// 3. DESENHAR TABELA (Render)
+// DESENHAR TABELA (Render)
 function renderAuditTable(list) {
   const tbody = document.getElementById('audit-table-body');
   if (!tbody) return;
@@ -119,7 +119,7 @@ function renderAuditTable(list) {
   if (window.lucide) lucide.createIcons();
 }
 
-// 4. HELPERS VISUAIS (Loading e Erro)
+// HELPERS VISUAIS (Loading e Erro)
 function renderAuditLoading() {
   const tbody = document.getElementById('audit-table-body');
   if (tbody) {

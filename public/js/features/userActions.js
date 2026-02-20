@@ -3,6 +3,7 @@ import { refreshAfterUserAction } from "./sectionLoader.js";
 
 // DESBLOQUEIO
 export async function unlockUserAccount(username) {
+  // Confirmação via SweetAlert antes de chamar a API
   const result = await Swal.fire({
     title: 'DESBLOQUEAR CONTA',
     html: `Tem certeza que deseja desbloquear o usuário <b>${username}</b>?`,
@@ -20,7 +21,7 @@ export async function unlockUserAccount(username) {
 
   if (!result.isConfirmed) return;
 
-  // Loading
+  // Loading visual durante o processamento
   Swal.fire({
     title: 'Processando...',
     text: 'Comunicando com o Active Directory.',
@@ -33,10 +34,11 @@ export async function unlockUserAccount(username) {
   });
 
   try {
+    // Chamada à API para desbloquear a conta
     const res = await fetch(`/api/users/${username}/unlock`, { method: 'POST' });
 
     if (res.ok) {
-      // Sucesso
+      // Feedback de sucesso e atualização da UI
       await Swal.fire({
         icon: 'success',
         title: 'Desbloqueado!',
@@ -48,14 +50,16 @@ export async function unlockUserAccount(username) {
         scrollbarPadding: false
       });
 
-      closeModal();
-      await refreshAfterUserAction();
+      closeModal();                 // Fecha modal do usuário
+      await refreshAfterUserAction(); // Recarrega a aba ativa (dados atualizados)
     } else {
+      // Erro retornado pela API
       const err = await res.json();
       throw new Error(err.error || 'Falha ao desbloquear');
     }
 
   } catch (error) {
+    // Tratamento de erro (rede/API)
     console.error(error);
     Swal.fire({
       icon: 'error',
@@ -71,6 +75,7 @@ export async function unlockUserAccount(username) {
 
 // DESLIGAMENTO 
 export async function confirmDisable(username, displayName) {
+  // Confirmação detalhada do desligamento (mostra as etapas)
   const result = await Swal.fire({
     title: 'DESLIGAMENTO IMEDIATO',
     html: `
@@ -98,6 +103,7 @@ export async function confirmDisable(username, displayName) {
 
   if (!result.isConfirmed) return;
 
+  // Loading visual durante o processo de desligamento
   Swal.fire({
     title: 'Processando...',
     text: 'Aplicando regras de desligamento no AD.',
@@ -110,6 +116,7 @@ export async function confirmDisable(username, displayName) {
   });
 
   try {
+    // Chamada à API que executa o desligamento do usuário
     const response = await fetch(`/api/users/${username}/disable`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
@@ -118,6 +125,7 @@ export async function confirmDisable(username, displayName) {
     const data = await response.json();
 
     if (data.success) {
+      // Feedback de sucesso e refresh da interface
       await Swal.fire({
         icon: 'success',
         title: 'Desligado!',
@@ -127,12 +135,14 @@ export async function confirmDisable(username, displayName) {
         heightAuto: false,      
         scrollbarPadding: false
       });
-      await refreshAfterUserAction();
-      closeModal();
+      await refreshAfterUserAction(); // Atualiza dados e visões
+      closeModal();                   // Fecha modal do usuário
     } else {
+      // Erro retornado pela API
       throw new Error(data.error || 'Erro desconhecido');
     }
   } catch (error) {
+    // Tratamento de erro (rede/API)
     Swal.fire({
       icon: 'error',
       title: 'Falha no Desligamento',

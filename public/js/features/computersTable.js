@@ -1,15 +1,18 @@
 import { store } from "../state/store.js";
 import { formatDate, getOSIcon } from "../utils/format.js";
 
+// Renderiza a tabela de computadores no tbody (#comp-table-body)
 export function renderCompTable(list) {
   const tbody = document.getElementById('comp-table-body');
   if (!tbody) return;
 
+  // Estado vazio
   if (list.length === 0) {
     tbody.innerHTML = `<tr><td colspan="5" class="text-center py-8 text-gray-400 dark:text-slate-500">Nenhum computador encontrado</td></tr>`;
     return;
   }
 
+  // Monta linhas da tabela (cada item c é um computador)
   tbody.innerHTML = list.map((c) => `
     <tr class="hover:bg-indigo-50/50 dark:hover:bg-slate-700/50 transition border-b border-gray-50 dark:border-slate-700">
       <td class="px-6 py-3 flex items-center gap-2 font-mono text-xs font-bold text-gray-700 dark:text-slate-300">${getOSIcon(c.os_name)} ${c.hostname}</td>
@@ -32,23 +35,29 @@ export function renderCompTable(list) {
       </td>
     </tr>`).join('');
 
+  // Re-renderiza os ícones lucide após injeção do HTML
   lucide.createIcons();
 }
 
+// Aplica filtros (texto, tipo e >6 meses) e re-renderiza tabela
 export function applyCompFilters() {
   const term = document.getElementById('compSearchInput')?.value?.toLowerCase() ?? '';
 
   const filtered = store.globalComputers.filter((c) => {
+    // Busca por hostname ou nome do SO
     const matchText =
       (c.hostname && c.hostname.toLowerCase().includes(term)) ||
       (c.os_name && c.os_name.toLowerCase().includes(term));
 
+    // Identifica se é server pelo nome do SO
     const isServer = c.os_name && c.os_name.toLowerCase().includes('server');
 
+    // Filtro por tipo (todos / workstation / server)
     let matchType = true;
     if (store.currentTypeFilter === 'server') matchType = isServer;
     if (store.currentTypeFilter === 'workstation') matchType = !isServer;
 
+    // Filtro de > 6 meses sem logon
     let matchSixMonths = true;
     if (store.isSixMonthsFilter) {
       if (!c.last_logon) matchSixMonths = true;
@@ -65,6 +74,7 @@ export function applyCompFilters() {
   renderCompTable(filtered);
 }
 
+// Define filtro por tipo e ajusta estilos dos botões (All/PCs/Servers)
 export function setCompFilter(type) {
   store.currentTypeFilter = type;
 
@@ -79,6 +89,7 @@ export function setCompFilter(type) {
   applyCompFilters();
 }
 
+// Liga/desliga filtro de máquinas com último logon > 6 meses e atualiza estilo do botão
 export function toggleSixMonths() {
   store.isSixMonthsFilter = !store.isSixMonthsFilter;
 
@@ -92,6 +103,7 @@ export function toggleSixMonths() {
   applyCompFilters();
 }
 
+// Ordena a lista global por coluna e reaplica filtros para refletir na UI
 export function sortCompTable(col) {
   if (store.compLastCol === col) store.compSortDir *= -1;
   else {
@@ -115,6 +127,7 @@ export function sortCompTable(col) {
   applyCompFilters();
 }
 
+// Confirma exclusão via SweetAlert, chama API DELETE e atualiza a lista
 export async function confirmDeleteComputer(computerName) {
   const result = await Swal.fire({
     title: 'EXCLUIR MÁQUINA',
@@ -129,27 +142,33 @@ export async function confirmDeleteComputer(computerName) {
     cancelButtonText: 'Cancelar'
   });
 
+  // Se cancelar, não prossegue
   if (!result.isConfirmed) return;
 
+  // Loading enquanto apaga
   Swal.fire({
     title: 'Apagando...',
     didOpen: () => Swal.showLoading()
   });
 
   try {
+    // Chama backend para excluir o computador
     const res = await fetch(`/api/inventory/computers/${computerName}`, {
       method: 'DELETE'
     });
     const data = await res.json();
 
     if (res.ok) {
+      // Sucesso: feedback e recarrega inventário
       await Swal.fire('Excluído!', data.message, 'success');
       if (window.loadInventory) window.loadInventory({ force: true });
 
     } else {
+      // Erro vindo da API
       throw new Error(data.error);
     }
   } catch (error) {
+    // Erro de rede/execução
     Swal.fire('Erro', error.message, 'error');
   }
 }

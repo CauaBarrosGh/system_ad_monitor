@@ -6,11 +6,14 @@ export function generateLogonName() {
     const lastNameInput = document.getElementById('regLastName').value.trim();
     const logonInput = document.getElementById('regLogonName');
 
+    // Só tenta montar se houver pelo menos nome ou sobrenome
     if (firstNameInput || lastNameInput) {
+        // Pega o primeiro nome e o último sobrenome
         const first = firstNameInput.split(' ')[0] || '';
         const lastParts = lastNameInput.split(' ');
         const last = lastParts.length > 0 ? lastParts[lastParts.length - 1] : '';   
 
+        // Monta base: "nome.sobrenome" | ou apenas "nome" | ou apenas "sobrenome"
         let baseName = '';
         if (first && last) {
             baseName = `${first}.${last}`;
@@ -20,14 +23,16 @@ export function generateLogonName() {
             baseName = last;
         }
 
+        // Normaliza: caixa baixa, remove acentos e caracteres inválidos
         const cleanName = baseName
             .toLowerCase()
             .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "") 
-            .replace(/[^a-z0-9.]/g, "");     
+            .replace(/[\u0300-\u036f]/g, "") // remove diacríticos (acentos)
+            .replace(/[^a-z0-9.]/g, "");     // mantém apenas letras, números e ponto
 
         logonInput.value = cleanName;
     } else {
+        // Se não houver nada, limpa o campo
         logonInput.value = '';
     }
 }
@@ -38,6 +43,7 @@ export function updateOuAndGroup() {
     const ouInput = document.getElementById('regTargetOU');
     const groupInput = document.getElementById('regTargetGroup');
 
+    // Mapa de perfis -> OU padrão e grupos default
     const map = {
         'TI': { 
             ou: 'OU=Teste_Caua,DC=soc,DC=com,DC=br', 
@@ -65,31 +71,37 @@ export function updateOuAndGroup() {
         }
     };
 
+    // Se houver mapeamento para o perfil selecionado, preenche os campos
     if (map[profile]) {
         ouInput.value = map[profile].ou;
-        groupInput.value = map[profile].groups.join('\n'); 
+        groupInput.value = map[profile].groups.join('\n'); // um grupo por linha
     }
 }
 
+// Gera senha temporária de 10 caracteres com requisitos mínimos
 export function generateSecurePassword() {
     const passwordInput = document.getElementById('regPassword');
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#";
     let password = "";
     
+    // Garante pelo menos 1 maiúscula, 1 minúscula, 1 número e 1 símbolo
     password += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[Math.floor(Math.random() * 26)];
     password += "abcdefghijklmnopqrstuvwxyz"[Math.floor(Math.random() * 26)];
     password += "0123456789"[Math.floor(Math.random() * 10)];                 
     password += "@#"[Math.floor(Math.random() * 2)];                    
 
+    // Completa até 10 caracteres com caracteres aleatórios do conjunto
     for (let i = 0; i < 6; i++) {
         const randomIndex = Math.floor(Math.random() * chars.length);
         password += chars.charAt(randomIndex);
     }
 
+    // Embaralha os caracteres para não manter a ordem dos primeiros 4
     password = password.split('').sort(() => 0.5 - Math.random()).join('');
     passwordInput.value = password;
 }
 
+// Submete criação do usuário: valida campos, confirma, envia para API e faz pós-ação
 export async function submitNewUser() {
     const firstName = document.getElementById('regFirstName').value.trim();
     const lastName = document.getElementById('regLastName').value.trim();
@@ -105,7 +117,7 @@ export async function submitNewUser() {
     const forcePwdChange = document.getElementById('regForcePwdChange').checked;
     const btnSubmit = document.getElementById('btnSubmitRegister');
 
-    // SWAL VALIDAÇÃO
+    // SWAL VALIDAÇÃO — checa obrigatórios antes de prosseguir
     if (!firstName || !lastName || !logonName || !targetOU || !password || !jobTitle || !seniority || !contractType) {
         Swal.fire({
             title: 'Campos Incompletos',
@@ -120,7 +132,7 @@ export async function submitNewUser() {
         return;
     }
 
-    // SWAL CONFIRMAÇÃO
+    // SWAL CONFIRMAÇÃO — confirma criação com OU e grupos revisados
     const confirmResult = await Swal.fire({
         title: 'CONFIRMAR CRIAÇÃO',
         html: `Deseja cadastrar o usuário <b>${logonName}</b> no AD?<br><span class="text-xs text-slate-500">Verifique se a OU e os grupos estão corretos.</span>`,
@@ -137,7 +149,7 @@ export async function submitNewUser() {
 
     if (!confirmResult.isConfirmed) return;
 
-    // Loading UI no botão
+    // Loading UI no botão (desabilita e mostra spinner)
     const originalBtnContent = btnSubmit.innerHTML;
     btnSubmit.disabled = true;
     btnSubmit.classList.add('opacity-75', 'cursor-not-allowed');
@@ -145,6 +157,7 @@ export async function submitNewUser() {
     if (window.lucide) { window.lucide.createIcons(); }
 
     try {
+        // Payload enviado ao backend
         const userData = {
             firstName,
             lastName,
@@ -159,8 +172,10 @@ export async function submitNewUser() {
             forcePwdChange
         };
 
+        // Recupera token salvo (autorização Bearer)
         const token = localStorage.getItem('token'); 
 
+        // Chamada à API para criar usuário no AD
         const response = await fetch('/api/users', {
             method: 'POST',
             headers: {
@@ -173,7 +188,7 @@ export async function submitNewUser() {
         const data = await response.json();
 
         if (response.ok && data.success) {
-            // SWAL SUCESSO
+            // SWAL SUCESSO — feedback positivo ao usuário
             Swal.fire({
                 title: 'SUCESSO!',
                 html: `O usuário <b>${logonName}</b> foi criado e ativado.<br>Senha definida com sucesso.`,
@@ -185,7 +200,7 @@ export async function submitNewUser() {
                 heightAuto: false
             });
             
-            // Limpa tudo
+            // Limpa todos os campos do formulário
             document.getElementById('regFirstName').value = '';
             document.getElementById('regLastName').value = '';
             document.getElementById('regLogonName').value = '';
@@ -198,16 +213,18 @@ export async function submitNewUser() {
             document.getElementById('regContractType').value = '';
             document.getElementById('regForcePwdChange').checked = false;
             
+            // Atualiza seções/tabelas dependentes da criação
             await refreshAfterUserAction();
 
         } else {
+            // Erro retornado pela API (com mensagem)
             throw new Error(data.error || 'Erro desconhecido retornado pelo servidor.');
         }
 
     } catch (error) {
         console.error("Erro ao Cadastrar usuário:", error);
         
-        // SWAL ERRO
+        // SWAL ERRO — feedback de falha
         Swal.fire({
             title: 'FALHA NO CADASTRO',
             text: error.message,
@@ -220,6 +237,7 @@ export async function submitNewUser() {
         });
 
     } finally {
+        // Restaura estado do botão (sempre executa)
         btnSubmit.disabled = false;
         btnSubmit.classList.remove('opacity-75', 'cursor-not-allowed');
         btnSubmit.innerHTML = originalBtnContent;
