@@ -750,7 +750,7 @@ const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
         const groupCN = decodeADString(cnMatch[1]); 
 
         return new Promise((resolve) => {
-            // 🎯 3. Busca o GUID do grupo usando o CN limpo
+            // Busca o GUID do grupo usando o CN limpo
             client.search(process.env.AD_BASE, {
                 filter: `(&(objectClass=group)(cn=${groupCN}))`, 
                 scope: 'sub',
@@ -776,7 +776,7 @@ const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
                         return resolve();
                     }
 
-                    // 🎯 4. Vínculo Final: GUID do Grupo <-> GUID do Usuário
+                    // Vínculo Final: GUID do Grupo <-> GUID do Usuário
                     const groupMagicDN = new Constructor();
                     groupMagicDN.toString = () => `<GUID=${groupGUID}>`;
 

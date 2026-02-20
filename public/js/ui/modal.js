@@ -2,9 +2,7 @@ import { store } from "../state/store.js";
 import { ROLE_COLORS } from "../config/roleColors.js"; 
 import { calcTimeInCompany, formatDate, getRoleBadge } from "../utils/format.js"; 
 import { unlockUserAccount, confirmDisable } from "../features/userActions.js";    
-import { refreshAfterUserAction } from "../features/sectionLoader.js";            
-import { renderUserTable, applyUserFilters } from "../features/usersTable.js";    
-import { renderDetailsGrid } from "../features/detailsGrid.js";                   
+import { refreshAfterUserAction } from "../features/sectionLoader.js";                         
 
 // Mapeia "Perfil/Setor" -> grupos padrão no AD
 const PERFIL_MAP = {
@@ -62,7 +60,7 @@ export async function openUserModal(username) {
     if (window.lucide) lucide.createIcons();
 
     try {
-        // 🎯 BUSCA DETALHES + LISTA COMPLETA DE GRUPOS DO AD
+        // BUSCA DETALHES + LISTA COMPLETA DE GRUPOS DO AD
         const [userRes, groupsRes] = await Promise.all([
             fetch(`/api/users/${username}/details`),
             fetch('/api/groups') 
@@ -174,7 +172,7 @@ export async function openUserModal(username) {
                 if (window.lucide) lucide.createIcons();
             };
 
-            // 🎯 SELETOR DE GRUPOS COM BUSCA EM TEMPO REAL
+            // SELETOR DE GRUPOS COM BUSCA EM TEMPO REAL
             const showGroupSelector = async () => {
                 const { value: groupDN } = await Swal.fire({
                     title: 'Adicionar Grupo',
