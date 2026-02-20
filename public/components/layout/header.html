@@ -1,33 +1,48 @@
+<!-- Header fixo superior: contém título da aba, controle de tema, sync manual e logout -->
 <header
-    class="h-16 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-4 lg:px-8 shadow-sm z-10 transition-colors duration-300 shrink-0">
+    class="h-16 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700
+           flex items-center justify-between px-4 lg:px-8 shadow-sm z-10 transition-colors duration-300 shrink-0">
 
+    <!-- Área esquerda: menu mobile + título dinâmico -->
     <div class="flex items-center gap-3 overflow-hidden">
+
+        <!-- Botão do menu lateral (visível apenas no mobile) -->
         <button onclick="toggleMobileMenu()"
             class="lg:hidden p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700 rounded-lg flex-shrink-0">
             <i data-lucide="menu" class="w-6 h-6"></i>
         </button>
-        <h2 class="text-lg font-bold text-gray-700 dark:text-slate-200 truncate max-w-[140px] sm:max-w-none"
-            id="header-title">
+
+        <!-- Título atualizado conforme a aba ativa -->
+        <h2 id="header-title"
+            class="text-lg font-bold text-gray-700 dark:text-slate-200 truncate max-w-[140px] sm:max-w-none">
             Dashboard
         </h2>
     </div>
 
+    <!-- Área direita: ações rápidas (sync, tema e logout) -->
     <div class="flex items-center gap-1 sm:gap-2 flex-shrink-0">
 
+        <!-- Botão para sincronização manual com o backend/AD -->
         <button id="btn-sync-now" onclick="triggerManualSync()"
-            class="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed sm:mr-4">
-            <i data-lucide="refresh-cw" id="icon-sync" class="w-4 h-4"></i>
+            class="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-500 to-blue-600
+                   hover:from-blue-600 hover:to-blue-700 text-white rounded-lg text-sm font-medium
+                   transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed sm:mr-4">
+            <i id="icon-sync" data-lucide="refresh-cw" class="w-4 h-4"></i>
             <span id="text-sync" class="hidden sm:inline">Sincronizar</span>
         </button>
 
+        <!-- Botão de alternância entre tema claro/escuro -->
         <button onclick="toggleDarkMode()"
-            class="p-2 text-slate-500 hover:text-yellow-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-yellow-400 rounded-lg transition-all">
+            class="p-2 text-slate-500 hover:text-yellow-500 hover:bg-slate-100
+                   dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-yellow-400 rounded-lg transition-all">
             <i id="icon-sun" data-lucide="sun" class="w-5 h-5"></i>
             <i id="icon-moon" data-lucide="moon" class="w-5 h-5 hidden"></i>
         </button>
 
+        <!-- Separador visual -->
         <div class="h-6 w-px bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block"></div>
 
+        <!-- Logout -->
         <a href="/auth/logout"
             class="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
             title="Sair do Sistema">

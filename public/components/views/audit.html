@@ -1,52 +1,65 @@
 <!--
-        [AUDIT] VIEW DE AUDITORIA:
-        - REGISTRA OS LOGS
-        -->
+    [AUDIT] VIEW DE AUDITORIA:
+    - Responsável por exibir logs de ações críticas.
+    - Permite filtros, atualização e exportação dos logs.
+-->
 <div id="view-audit" class="hidden h-full flex flex-col animate-fade-in relative z-20">
 
-    <!-- Header simplificado - apenas texto e botão -->
+    <!-- Cabeçalho da view: título + botões de ação -->
     <div
         class="shrink-0 mb-6 flex flex-col md:flex-row justify-between items-center px-6 gap-4 text-center md:text-left mt-6 md:mt-0">
+
         <div>
+            <!-- Ícone + nome da seção -->
             <h3
                 class="text-xl font-bold text-slate-800 dark:text-slate-100 flex flex-col md:flex-row items-center gap-3 justify-center md:justify-start">
                 <i data-lucide="shield-alert" class="w-6 h-6 text-blue-600 dark:text-blue-400"></i>
                 Logs de Auditoria
             </h3>
-            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">Rastreabilidade de ações críticas
-                (Desligamentos, Desbloqueios, etc).
+
+            <!-- Subtítulo explicativo -->
+            <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                Rastreabilidade de ações críticas (Desligamentos, Desbloqueios, etc).
             </p>
         </div>
 
+        <!-- Ações principais da view -->
         <div class="flex flex-wrap justify-center gap-3 w-full md:w-auto">
+
+            <!-- Exportação de logs -->
             <button onclick="exportCSV()"
                 class="h-9 flex items-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors">
                 <i data-lucide="download" class="w-4 h-4"></i> Exportar
             </button>
 
+            <!-- Recarrega os logs do servidor -->
             <button onclick="loadAuditLogs()"
                 class="h-9 group flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg transition-all text-sm font-semibold shadow-lg hover:shadow-xl">
                 <i data-lucide="refresh-cw"
                     class="w-4 h-4 group-hover:rotate-180 transition-transform duration-500"></i>
                 Atualizar
             </button>
+
         </div>
     </div>
+
+    <!-- Filtros do painel de Auditoria -->
     <div class="px-6 mb-6">
         <div
             class="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-300 dark:border-slate-700 flex flex-wrap gap-4 items-end">
 
+            <!-- Filtro por Data -->
             <div class="w-full sm:w-auto">
                 <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Data</label>
                 <input type="date" id="auditFilterDate" onchange="applyAuditFilters()"
-                    class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
             </div>
 
+            <!-- Filtro por tipo de ação -->
             <div class="w-full sm:w-auto">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Tipo
-                    de Ação</label>
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Tipo de Ação</label>
                 <select id="auditFilterAction" onchange="applyAuditFilters()"
-                    class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    class="w-full sm:w-40 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
                     <option value="">Todas</option>
                     <option value="CADASTRO USUÁRIO">Cadastro Usuário</option>
                     <option value="DESBLOQUEIO">Desbloqueio</option>
@@ -56,90 +69,109 @@
                 </select>
             </div>
 
+            <!-- Filtro de busca (executor ou alvo) -->
             <div class="flex-1 min-w-[200px]">
-                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Executor
-                    ou Alvo</label>
+                <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Executor ou Alvo</label>
                 <div class="relative">
                     <i data-lucide="search" class="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400"></i>
                     <input type="text" id="auditFilterSearch" onkeyup="applyAuditFilters()"
                         placeholder="Buscar por nome do admin ou usuário..."
-                        class="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        class="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
                 </div>
             </div>
 
+            <!-- Filtro por Status -->
             <div class="w-full sm:w-auto">
                 <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Status</label>
                 <select id="auditFilterStatus" onchange="applyAuditFilters()"
-                    class="w-full sm:w-32 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    class="w-full sm:w-32 px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-xs font-medium">
                     <option value="">Todos</option>
                     <option value="SUCESSO">Sucesso</option>
                     <option value="ERRO">Erro</option>
                 </select>
             </div>
 
+            <!-- Limpa os filtros -->
             <button onclick="clearAuditFilters()"
                 class="px-3 py-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
                 title="Limpar Filtros">
                 <i data-lucide="filter-x" class="w-5 h-5"></i>
             </button>
+
         </div>
     </div>
 
-    <!-- Tabela com espaçamento lateral -->
+    <!-- Tabela principal de logs -->
     <div
         class="h-[75vh] lg:h-auto lg:flex-1 overflow-hidden bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-300 dark:border-slate-700 flex flex-col mx-4 md:mx-6 mb-6">
+
+        <!-- Área com scroll para a tabela -->
         <div class="overflow-y-auto overflow-x-auto custom-scrollbar flex-1 w-full">
+
+            <!-- Tabela de resultados -->
             <table class="w-full text-left text-sm whitespace-nowrap">
+
+                <!-- Cabeçalho da tabela -->
                 <thead
                     class="sticky top-0 z-10 bg-gradient-to-b from-slate-100 to-slate-50 dark:from-slate-900 dark:to-slate-800 shadow-md">
                     <tr class="border-b-2 border-slate-200 dark:border-slate-700">
+
+                        <!-- Coluna Data/Hora -->
                         <th class="px-6 py-4 w-20 align-middle">
-                            <div
-                                class="flex items-center gap-2 text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
-                                <i data-lucide="calendar" class="w-4 h-4 text-slate-500 dark:text-slate-400"></i>
+                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                                <i data-lucide="calendar" class="w-4 h-4 text-slate-500"></i>
                                 Data/Hora
                             </div>
                         </th>
+
+                        <!-- Coluna Ação -->
                         <th class="px-6 py-4 w-45 align-middle">
-                            <div
-                                class="flex items-center gap-2 text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
-                                <i data-lucide="activity" class="w-4 h-4 text-slate-500 dark:text-slate-400"></i>
+                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                                <i data-lucide="activity" class="w-4 h-4 text-slate-500"></i>
                                 Ação
                             </div>
                         </th>
+
+                        <!-- Coluna Executor -->
                         <th class="px-6 py-4 w-50 align-middle">
-                            <div
-                                class="flex items-center gap-2 text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
-                                <i data-lucide="user-check" class="w-4 h-4 text-slate-500 dark:text-slate-400"></i>
+                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                                <i data-lucide="user-check" class="w-4 h-4 text-slate-500"></i>
                                 Executor (Admin)
                             </div>
                         </th>
+
+                        <!-- Coluna Usuário alvo -->
                         <th class="px-6 py-4 w-40 align-middle">
-                            <div
-                                class="flex items-center gap-2 text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
-                                <i data-lucide="target" class="w-4 h-4 text-slate-500 dark:text-slate-400"></i>
+                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                                <i data-lucide="target" class="w-4 h-4 text-slate-500"></i>
                                 Usuário
                             </div>
                         </th>
+
+                        <!-- Coluna Status -->
                         <th class="px-6 py-4 w-24 align-middle">
-                            <div
-                                class="flex items-center gap-2 text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
-                                <i data-lucide="check-circle" class="w-4 h-4 text-slate-500 dark:text-slate-400"></i>
+                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                                <i data-lucide="check-circle" class="w-4 h-4 text-slate-500"></i>
                                 Status
                             </div>
                         </th>
+
+                        <!-- Coluna Detalhes -->
                         <th class="px-6 py-4 align-middle">
-                            <div
-                                class="flex items-center gap-2 text-xs font-bold uppercase text-slate-700 dark:text-slate-300">
-                                <i data-lucide="file-text" class="w-4 h-4 text-slate-500 dark:text-slate-400"></i>
+                            <div class="flex items-center gap-2 text-xs font-bold uppercase">
+                                <i data-lucide="file-text" class="w-4 h-4 text-slate-500"></i>
                                 Detalhes Técnicos
                             </div>
                         </th>
+
                     </tr>
                 </thead>
+
+                <!-- Corpo da tabela (preenchido via JS) -->
                 <tbody id="audit-table-body" class="divide-y divide-slate-100 dark:divide-slate-700">
-                    <!-- Conteúdo será carregado dinamicamente -->
+                    <!-- Conteúdo dinâmico inserido por audit.js -->
                 </tbody>
+
             </table>
         </div>
     </div>

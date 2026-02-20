@@ -1,35 +1,55 @@
 <!--
     [VIEW: DETAILS]
     Diretório corporativo:
-    - Filtro dept: #deptFilter
-    - Busca: #detailsSearch
-    - Cards/grid: #details-grid (JS renderiza)
-    - Export: exportCSV()
+    - Filtro de departamento (#deptFilter)
+    - Busca por colaborador (#detailsSearch)
+    - Cards dinâmicos renderizados no grid (#details-grid)
+    - Exportação CSV (exportCSV)
 -->
+
 <section id="view-details" class="fade-in space-y-6 hidden">
+
+    <!-- Cabeçalho da view + filtros superiores -->
     <div class="flex flex-col lg:flex-row justify-between items-center lg:items-end gap-4 text-center lg:text-left">
+
+        <!-- Título e descrição do diretório -->
         <div>
-            <h3 class="text-xl font-bold text-slate-800 dark:text-slate-100">Diretório Corporativo</h3>
-            <p class="text-sm text-slate-500 dark:text-slate-400">Detalhes funcionais, equipes e gestores.
+            <h3 class="text-xl font-bold text-slate-800 dark:text-slate-100">
+                Diretório Corporativo
+            </h3>
+            <p class="text-sm text-slate-500 dark:text-slate-400">
+                Detalhes funcionais, equipes e gestores.
             </p>
         </div>
+
+        <!-- Área de filtros e botões -->
         <div class="flex flex-wrap gap-3 w-full lg:w-auto justify-center lg:justify-end">
+
+            <!-- Filtro por departamento -->
             <select id="deptFilter"
-                class="w-full sm:w-auto px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm text-gray-600 dark:text-slate-300 focus:outline-none shadow-sm">
+                class="w-full sm:w-auto px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm">
                 <option value="">Todos Departamentos</option>
             </select>
+
+            <!-- Campo de busca por colaborador -->
             <div class="relative w-full sm:w-64">
                 <i data-lucide="search" class="absolute left-3 top-2.5 text-gray-400 w-4 h-4"></i>
                 <input type="text" id="detailsSearch" placeholder="Buscar colaborador"
-                    class="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm shadow-sm text-slate-700 dark:text-slate-200">
+                    class="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm">
             </div>
+
+            <!-- Exportação CSV -->
             <button onclick="exportCSV()"
                 class="h-9 flex items-center justify-center gap-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors w-full sm:w-auto">
-                <i data-lucide="download" class="w-4 h-4"></i> Exportar CSV
+                <i data-lucide="download" class="w-4 h-4"></i>
+                Exportar CSV
             </button>
         </div>
     </div>
 
-    <div id="details-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-6">
+    <!-- Grid onde os cards de colaboradores serão renderizados via JS -->
+    <div id="details-grid"
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-6">
     </div>
+
 </section>

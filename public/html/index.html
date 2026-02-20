@@ -4,28 +4,44 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AD Guard</title>
+
+    <!-- Ícone da aba -->
     <link rel="icon" type="image/png" href="/img/shield.png">
-    
+
+    <!-- Tailwind (modo dark configurado via classe) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        tailwind.config = { darkMode: 'class', theme: { extend: { colors: { slate: { 850: '#1e293b' } } } } }
+        tailwind.config = { 
+            darkMode: 'class', 
+            theme: { extend: { colors: { slate: { 850: '#1e293b' } } } } 
+        }
     </script>
+
+    <!-- Bibliotecas globais usadas em vários módulos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <!-- Estilos adicionais -->
     <link rel="stylesheet" href="/css/style.css">
 </head>
 
 <body class="bg-slate-50 dark:bg-slate-900 flex h-screen overflow-hidden font-sans transition-colors duration-300">
-    
-    <div id="mobile-overlay" onclick="toggleMobileMenu()" class="fixed inset-0 bg-black/50 z-30 hidden lg:hidden backdrop-blur-sm transition-opacity"></div>
 
+    <!-- Overlay do menu mobile -->
+    <div id="mobile-overlay" onclick="toggleMobileMenu()" 
+         class="fixed inset-0 bg-black/50 z-30 hidden lg:hidden backdrop-blur-sm transition-opacity"></div>
+
+    <!-- Sidebar carregada dinamicamente pelo loader.js -->
     <div id="component-sidebar"></div>
 
+    <!-- Área principal da aplicação -->
     <main class="flex-1 flex flex-col overflow-hidden relative bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
-        
+
+        <!-- Header dinâmico -->
         <div id="component-header"></div>
 
+        <!-- Container de views (cada aba é carregada separadamente) -->
         <div class="flex-1 overflow-auto p-8 bg-slate-50/50 dark:bg-slate-900 relative transition-colors duration-300">
             <div id="component-overview"></div>
             <div id="component-details"></div>
@@ -37,14 +53,17 @@
         </div>
     </main>
 
+    <!-- Modal global (carregado via loader.js) -->
     <div id="component-modal"></div>
 
+    <!-- Inicialização do app: carrega componentes e só depois importa o main.js -->
     <script type="module">
         import { loadComponents } from '/js/loader.js';
         loadComponents().then(() => {
             console.log("🧩 Componentes carregados. Iniciando App...");
-            import('/js/main.js'); 
+            import('/js/main.js'); // evita race conditions
         });
     </script>
+
 </body>
 </html>
