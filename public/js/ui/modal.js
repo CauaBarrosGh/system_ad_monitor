@@ -8,11 +8,26 @@ import { renderDetailsGrid } from "../features/detailsGrid.js";
 
 // Mapeia "Perfil/Setor" -> grupos padrão no AD
 const PERFIL_MAP = {
-    'TI': { groups: ['CN=Dev - TI,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br','CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'] },
-    'GSI': { groups: ['CN=DEV - Gestão de Sistemas Internos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br','CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'] },
-    'SI': { groups: [] },
-    'COMERCIAL': { groups: [] },
-    'RH': { groups: [] }
+    'TI': { 
+        groups: ['CN=Dev - TI,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br', 'CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'],
+        targetOU: 'OU=Teste_Caua,DC=soc,DC=com,DC=br'
+    },
+    'GSI': { 
+        groups: ['CN=DEV - Gestão de Sistemas Internos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br', 'CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'],
+        targetOU: 'OU=Engenharia,OU=Operações,OU=Operação e Tecnologia,OU=Usuarios,OU=SOC,DC=soc,DC=com,DC=br'
+    },
+    'SI': { 
+        groups: ['CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'], 
+        targetOU: 'OU=Usuarios,OU=SOC,DC=soc,DC=com,DC=br' 
+    },
+    'COMERCIAL': { 
+        groups: ['CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'], 
+        targetOU: 'OU=Usuarios,OU=SOC,DC=soc,DC=com,DC=br' 
+    },
+    'RH': { 
+        groups: ['CN=SocTodos,OU=Grupos de Segurança,OU=SOC,DC=soc,DC=com,DC=br'], 
+        targetOU: 'OU=Usuarios,OU=SOC,DC=soc,DC=com,DC=br' 
+    }
 };
 
 // Decodifica strings do AD em formato hex escapado (\c3\a7 -> ç)
@@ -164,7 +179,7 @@ export async function openUserModal(username) {
                 
                 <div>
                     <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Perfil / Setor</label>
-                    <select id="edit-perfil" class="w-full bg-slate-100 dark:bg-slate-900 border-none rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200">
+                    <select id="edit-perfil" class="w-full bg-slate-100 dark:bg-slate-900 border-none rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200 font-bold text-blue-600">
                         <option value="">Manter atual...</option>
                         ${Object.keys(PERFIL_MAP).map(p => `<option value="${p}">${p}</option>`).join('')}
                     </select>
@@ -176,20 +191,24 @@ export async function openUserModal(username) {
                         <option value="${current.departmentNumber}">${current.departmentNumber || 'Selecione...'}</option>
                         <option value="Estagiário">Estagiário</option>
                         <option value="Aprendiz">Aprendiz</option>
-                        <option value="Assistente">Assistente</option>
                         <option value="Júnior">Júnior</option>
                         <option value="Pleno">Pleno</option>
                         <option value="Sênior">Sênior</option>
                         <option value="Especialista">Especialista</option>
-                        <option value="Engenheiro">Engenheiro</option>
-                        <option value="Liderança">Lider</option>
-                        <option value="ProductManager">Product Manager</option>
                     </select>
                 </div>
-
                 <div class="col-span-2 mt-2">
                     <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Gerenciar Grupos</label>
                     <div id="edit-groups-container" class="flex flex-wrap max-h-24 overflow-y-auto custom-scrollbar border border-dashed border-slate-200 dark:border-slate-700 p-2 rounded-lg">
+                    </div>
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Unidade Organizacional Alvo (OU)</label>
+                    <div class="relative">
+                        <input type="text" id="edit-ou" 
+                            class="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-xs font-mono text-slate-500 overflow-x-auto" 
+                            value="${decodeADString(current.dn.split(',').slice(1).join(','))}" 
+                            readonly>
                     </div>
                 </div>
             `;
@@ -204,10 +223,23 @@ export async function openUserModal(username) {
 
             // Alteração de perfil aplica grupos padrão do mapa
             document.getElementById('edit-perfil').addEventListener('change', (e) => {
-                const config = PERFIL_MAP[e.target.value];
+                const perfilSelecionado = e.target.value;
+                const config = PERFIL_MAP[perfilSelecionado];
+                
                 if (config) {
+                    // Atualiza os grupos na memória
                     selectedGroups = [...config.groups];
                     updateGroupsUI();
+                    
+                    // ATUALIZA A OU NA TELA
+                    const ouInput = document.getElementById('edit-ou');
+                    if (ouInput) {
+                        ouInput.value = config.targetOU;
+                        // Feedback visual de que mudou
+                        ouInput.classList.add('ring-2', 'ring-blue-500/20', 'bg-blue-50/50');
+                        setTimeout(() => ouInput.classList.remove('ring-2', 'ring-blue-500/20', 'bg-blue-50/50'), 1000);
+                    }
+                    console.log(`✅ Perfil ${perfilSelecionado}: Grupos e OU sincronizados no modal.`);
                 }
             });
 
@@ -268,6 +300,7 @@ const saveUserChanges = async (username, finalGroups) => {
         displayName: document.getElementById('edit-displayname').value,
         description: document.getElementById('edit-description').value,
         departmentNumber: document.getElementById('edit-deptnum').value,
+        targetOU: document.getElementById('edit-ou').value,
         targetGroups: finalGroups
     };
 

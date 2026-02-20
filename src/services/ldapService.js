@@ -705,84 +705,87 @@ exports.createNewUserFullProcess = (userData, targetOU, targetGroups, adminUser,
     });
 };
 
-// --- FUNÇÃO DE SINCRONIZAR GRUPOS ---
-const syncGroups = async (client, userDNForGroups, currentGroups, targetGroups) => {
-    const toAdd = targetGroups.filter(g => !currentGroups.includes(g));
-    const toRemove = currentGroups.filter(g => 
-        !targetGroups.includes(g) && 
-        !g.toLowerCase().includes('domain users') && 
-        !g.toLowerCase().includes('usuários do domínio')
-    );
+// --- FUNÇÃO DE SINCRONIZAR GRUPOS (Versão Suprema via GUID) ---
+const syncGroups = async (client, userGUID, currentGroups, targetGroups) => {
+    
+    // Normalização para comparação (ç e \c3\a7 viram a mesma coisa)
+    const normalize = (dn) => {
+        if (!dn) return '';
+        return dn.toLowerCase()
+            .replace(/\\([0-9a-fA-F]{2})/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)))
+            .trim();
+    };
 
-    // REMOVER
-    for (const groupDN of toRemove) {
-        await new Promise((resolveGroup) => {
-            const cnMatch = groupDN.match(/^CN=([^,]+)/);
-            if (!cnMatch) return resolveGroup();
-            
-            const groupCN = cnMatch[1];
-            const opts = {
+    const normTarget = targetGroups.map(g => normalize(g));
+    const normCurrent = currentGroups.map(g => normalize(g));
+
+    // Identifica o que realmente mudou
+    const toAdd = targetGroups.filter(g => !normCurrent.includes(normalize(g)));
+    const toRemove = currentGroups.filter(g => {
+        const n = normalize(g);
+        return !normTarget.includes(n) && !n.includes('domain users') && !n.includes('usuários do domínio');
+    });
+
+    console.log(`📊 [SYNC GROUPS] Localizado: +${toAdd.length} para adicionar | -${toRemove.length} para remover`);
+
+    // Usar o GUID do usuário para garantir o vínculo correto
+    const userMagicDN = `<GUID=${userGUID}>`;
+
+    // FUNÇÃO INTERNA PARA MODIFICAR GRUPO
+    const modifyGroupMembership = async (groupDN, action) => {
+        const cnMatch = groupDN.match(/CN=([^,]+)/i);
+        if (!cnMatch) return;
+        const groupCN = cnMatch[1].replace(/\\([0-9a-fA-F]{2})/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
+
+        return new Promise((resolve) => {
+            // Busca o GUID do grupo para evitar erro de acento no DN do grupo
+            client.search(process.env.AD_BASE, {
                 filter: `(&(objectClass=group)(cn=${groupCN}))`,
                 scope: 'sub',
                 attributes: ['objectGUID']
-            };
-
-            client.search(process.env.AD_BASE, opts, (searchErr, searchRes) => {
-                if (searchErr) return resolveGroup();
+            }, (err, res) => {
+                if (err) return resolve();
+                
                 let groupGUID = null;
-                let GroupConstructor = null;
+                let Constructor = null;
 
-                searchRes.on('searchEntry', (entry) => {
-                    if (entry.objectName && entry.objectName.constructor) GroupConstructor = entry.objectName.constructor;
+                res.on('searchEntry', (entry) => {
+                    Constructor = entry.objectName.constructor;
                     const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
                     groupGUID = guidAttr.buffers ? guidAttr.buffers[0].toString('hex') : Buffer.from(guidAttr.values[0], 'binary').toString('hex');
                 });
 
-                searchRes.on('end', () => {
-                    if (!groupGUID || !GroupConstructor) return resolveGroup();
-                    
-                    const magicGroupDN = new GroupConstructor();
-                    magicGroupDN.toString = () => `<GUID=${groupGUID}>`;
-                    magicGroupDN.format = () => `<GUID=${groupGUID}>`;
+                res.on('end', () => {
+                    if (!groupGUID) {
+                        console.error(`❌ Grupo não encontrado no AD: ${groupCN}`);
+                        return resolve();
+                    }
+
+                    const groupMagicDN = new Constructor();
+                    groupMagicDN.toString = () => `<GUID=${groupGUID}>`;
 
                     const change = new ldap.Change({
-                        operation: 'delete',
-                        modification: { type: 'member', values: [userDNForGroups] } // 🎯 String crua do AD
+                        operation: action,
+                        modification: { type: 'member', values: [userMagicDN] } // Adiciona/Remove via GUID do usuário
                     });
 
-                    client.modify(magicGroupDN, change, (modErr) => {
-                        if (!modErr) console.log(`🗑️ Removido do grupo via GUID: ${groupCN}`);
-                        resolveGroup();
+                    client.modify(groupMagicDN, change, (modErr) => {
+                        if (modErr) {
+                            console.error(`⚠️ Erro ao ${action === 'add' ? 'adicionar' : 'remover'} no grupo ${groupCN}: ${modErr.message}`);
+                        } else {
+                            console.log(`✅ [${action.toUpperCase()}] Grupo: ${groupCN}`);
+                        }
+                        resolve();
                     });
                 });
             });
         });
-    }
+    };
 
-    // ADICIONAR (Mesma lógica segura de GUID)
-    for (const groupDN of toAdd) {
-        await new Promise((resolveAdd) => {
-            const cnMatch = groupDN.match(/^CN=([^,]+)/);
-            if (!cnMatch) return resolveAdd();
-
-            client.search(process.env.AD_BASE, { filter: `(&(objectClass=group)(cn=${cnMatch[1]}))`, scope: 'sub', attributes: ['objectGUID'] }, (err, res) => {
-                let gGUID = null;
-                let GConst = null;
-                res.on('searchEntry', e => {
-                    GConst = e.objectName.constructor;
-                    const ga = e.attributes.find(a => a.type.toLowerCase() === 'objectguid');
-                    gGUID = ga.buffers ? ga.buffers[0].toString('hex') : Buffer.from(ga.values[0], 'binary').toString('hex');
-                });
-                res.on('end', () => {
-                    if (!gGUID || !GConst) return resolveAdd();
-                    const mDN = new GConst();
-                    mDN.toString = () => `<GUID=${gGUID}>`;
-                    const change = new ldap.Change({ operation: 'add', modification: { type: 'member', values: [userDNForGroups] } });
-                    client.modify(mDN, change, () => resolveAdd());
-                });
-            });
-        });
-    }
+    // Executa as remoções primeiro
+    for (const g of toRemove) await modifyGroupMembership(g, 'delete');
+    // Executa as adições
+    for (const g of toAdd) await modifyGroupMembership(g, 'add');
 };
 
 // --- EDITAR USUÁRIO ---
@@ -796,68 +799,115 @@ exports.updateUserFull = (username, data, adminUser, adminPass) => {
         const bindUser = adminUser || process.env.AD_USER;
         const bindPass = adminPass || process.env.AD_PASSWORD;
 
-        client.bind(bindUser, bindPass, (bindErr) => {
+        client.bind(bindUser, bindPass, async (bindErr) => {
             if (bindErr) {
                 client.unbind();
                 return reject(new Error('Erro de autenticação no AD.'));
             }
 
-            const searchOptions = {
-                filter: `(sAMAccountName=${username})`,
-                scope: 'sub',
-                attributes: ['objectGUID', 'cn', 'memberOf', 'distinguishedName']
-            };
-
-            client.search(process.env.AD_BASE, searchOptions, (searchErr, searchRes) => {
-                if (searchErr) { client.unbind(); return reject(searchErr); }
-
-                let userData = null;
-                searchRes.on('searchEntry', (entry) => {
-                    const pureDNVals = getAttributeValue(entry.attributes, 'distinguishedName');
-                    const rawDN = (pureDNVals && pureDNVals.length > 0) ? pureDNVals[0] : entry.objectName.toString();
-                    
-                    const guidAttr = entry.attributes.find(a => a.type.toLowerCase() === 'objectguid');
-                    const guid = guidAttr.buffers ? guidAttr.buffers[0].toString('hex') : Buffer.from(guidAttr.values[0], 'binary').toString('hex');
-
-                    userData = {
-                        dn: rawDN,
-                        guid: guid,
-                        DNConstructor: entry.objectName.constructor,
-                        memberOf: getAttributeValue(entry.attributes, 'memberOf') || []
-                    };
+            try {
+                // BUSCA O USUÁRIO (Precisamos do GUID e do DN atual)
+                const user = await new Promise((res, rej) => {
+                    const opts = { filter: `(sAMAccountName=${username})`, scope: 'sub', attributes: ['objectGUID', 'distinguishedName', 'memberOf'] };
+                    client.search(process.env.AD_BASE, opts, (err, sRes) => {
+                        if (err) return rej(err);
+                        let found = null;
+                        sRes.on('searchEntry', e => {
+                            const guidAttr = e.attributes.find(a => a.type.toLowerCase() === 'objectguid');
+                            found = {
+                                dn: e.objectName.toString(),
+                                guid: guidAttr.buffers ? guidAttr.buffers[0].toString('hex') : Buffer.from(guidAttr.values[0], 'binary').toString('hex'),
+                                groups: getAttributeValue(e.attributes, 'memberOf') || [],
+                                DNConstructor: e.objectName.constructor
+                            };
+                        });
+                        sRes.on('end', () => res(found));
+                    });
                 });
 
-                searchRes.on('end', async () => {
-                    if (!userData) { client.unbind(); return reject(new Error('Usuário não encontrado.')); }
+                if (!user) throw new Error('Usuário não encontrado.');
 
-                    try {
-                        const userMagicDN = new userData.DNConstructor();
-                        userMagicDN.toString = () => `<GUID=${userData.guid}>`;
-                        userMagicDN.format = () => `<GUID=${userData.guid}>`;
+                // ATUALIZAR ATRIBUTOS E GRUPOS VIA LDAP
+                const magicUserDN = new user.DNConstructor();
+                magicUserDN.toString = () => `<GUID=${user.guid}>`;
+                magicUserDN.format = () => `<GUID=${user.guid}>`;
 
-                        const mods = [];
-                        if (data.displayName) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'displayName', values: [data.displayName] } }));
-                        if (data.description) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'description', values: [data.description] } }));
-                        if (data.departmentNumber) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'departmentNumber', values: [data.departmentNumber] } }));
+                const mods = [];
+                if (data.displayName) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'displayName', values: [data.displayName] } }));
+                if (data.description) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'description', values: [data.description] } }));
+                if (data.departmentNumber) mods.push(new ldap.Change({ operation: 'replace', modification: { type: 'departmentNumber', values: [data.departmentNumber] } }));
 
-                        if (mods.length > 0) {
-                            await new Promise((res, rej) => client.modify(userMagicDN, mods, (err) => err ? rej(err) : res()));
-                            console.log(`✅ Atributos de ${username} atualizados.`);
+                if (mods.length > 0) {
+                    await new Promise((res, rej) => client.modify(magicUserDN, mods, err => err ? rej(err) : res()));
+                }
+                if (data.targetGroups) {
+                    await syncGroups(client, user.guid, user.groups, data.targetGroups);
+                }
+
+                // FECHA O LDAP ANTES DO POWERSHELL (Libera o lock do objeto)
+                client.unbind();
+                console.log(`🔒 Conexão LDAP encerrada para ${username}. Iniciando movimentação...`);
+
+                // MOVER DE OU (POWERSHELL COM BUSCA INTERNA)
+                if (data.targetOU) {
+                    const currentDN = user.dn.toLowerCase();
+                    const targetOUPath = data.targetOU.toLowerCase().trim();
+
+                    if (!currentDN.includes(targetOUPath)) {
+                        console.log(`🚀 [POWERSHELL] Movendo ${username} via Busca Interna (Base64)...`);
+
+                        const ouBase64 = Buffer.from(data.targetOU, 'utf8').toString('base64');
+
+                        const psScript = `
+                            $ProgressPreference = 'SilentlyContinue'
+                            try {
+                                # Decodifica o caminho da OU
+                                $ouB64 = "${ouBase64}"
+                                $ouPath = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($ouB64))
+                                
+                                # Credenciais
+                                $u = "${bindUser.replace(/"/g, '""')}"
+                                $p = "${bindPass.replace(/"/g, '""')}"
+                                $base = "LDAP://${process.env.AD_BASE}"
+
+                                # 1. Localiza o usuário dentro do PowerShell (Garante objeto fresco e com permissão)
+                                $searcher = New-Object System.DirectoryServices.DirectorySearcher([ADSI]"$base")
+                                $searcher.Filter = "(sAMAccountName=${username})"
+                                $userResult = $searcher.FindOne()
+                                
+                                if ($userResult -eq $null) { throw "Usuário ${username} não localizado no AD pelo PowerShell." }
+
+                                # 2. Abre os objetos com credenciais explícitas
+                                $userEntry = New-Object System.DirectoryServices.DirectoryEntry($userResult.Path, $u, $p)
+                                $targetOU = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ouPath", $u, $p)
+
+                                # 3. Executa a movimentação
+                                $userEntry.psbase.MoveTo($targetOU)
+                                
+                                Write-Output "PS_MOVE_SUCCESS"
+                            } catch {
+                                Write-Error $_.Exception.Message
+                            }
+                        `;
+
+                        const base64Script = Buffer.from(psScript, 'utf16le').toString('base64');
+                        const { stdout, stderr } = await execPromise(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${base64Script}`);
+
+                        if (!stdout.includes('PS_MOVE_SUCCESS')) {
+                            console.error(`❌ Erro MoveTo: ${stderr}`);
+                        } else {
+                            console.log('✨ [SUCESSO] Usuário movido de OU com busca interna.');
                         }
-
-                        if (data.targetGroups) {
-                            await syncGroups(client, userData.dn, userData.memberOf, data.targetGroups);
-                        }
-
-                        client.unbind();
-                        resolve(true);
-                    } catch (error) {
-                        console.error('❌ Erro no Update:', error.message);
-                        if (client) client.unbind();
-                        reject(error);
                     }
-                });
-            });
+                }
+
+                resolve({ success: true });
+
+            } catch (e) {
+                console.error(`❌ Erro no Processo: ${e.message}`);
+                if (client) client.unbind();
+                reject(e);
+            }
         });
     });
 };
